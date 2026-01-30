@@ -17,6 +17,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 
 VEBAL_FILE = DATA_DIR / "veBAL.csv"
 VOTES_BRIBES_FILE = DATA_DIR / "votes_bribes_merged.csv"
+CORE_POOLS_CLASSIFICATION_FILE = DATA_DIR / "classification_core_pools.csv"
 OUTPUT_FILE = DATA_DIR / "Balancer-All-Tokenomics.csv"
 
 FINAL_COLUMNS = [
@@ -46,12 +47,17 @@ FINAL_COLUMNS = [
 def create_final_dataset(
     vebal_file: Path = VEBAL_FILE,
     votes_bribes_file: Path = VOTES_BRIBES_FILE,
+    core_pools_classification_file: Path = CORE_POOLS_CLASSIFICATION_FILE,
     output_file: Path = OUTPUT_FILE
 ) -> pd.DataFrame:
     """
-    Creates the final dataset by combining veBAL.csv and votes_bribes_merged.csv.
+    Creates the final dataset by combining veBAL.csv, core pools classification, 
+    and votes_bribes_merged.csv.
     
-    The function performs a left merge on gauge_address, block_date, and blockchain.
+    The function performs:
+    1. Merge veBAL with core pools classification (using first 42 chars of address)
+    2. Left merge on gauge_address, block_date, and blockchain with votes_bribes
+    
     Rows from veBAL where gauge_address is missing or invalid are removed before merging.
     The final dataset is sorted by block_date (descending), blockchain, and 
     project_contract_address.
@@ -59,6 +65,7 @@ def create_final_dataset(
     Args:
         vebal_file: Path to veBAL CSV file
         votes_bribes_file: Path to votes_bribes_merged CSV file
+        core_pools_classification_file: Path to core pools classification CSV file
         output_file: Path to output CSV file
         
     Returns:
@@ -76,16 +83,21 @@ def create_final_dataset(
         raise FileNotFoundError(f"File not found: {vebal_file}")
     if not votes_bribes_file.exists():
         raise FileNotFoundError(f"File not found: {votes_bribes_file}")
+    if not core_pools_classification_file.exists():
+        raise FileNotFoundError(f"File not found: {core_pools_classification_file}")
     
     print("\n📖 Reading files...")
     
     vebal_df = pd.read_csv(vebal_file)
     votes_bribes_df = pd.read_csv(votes_bribes_file)
+    core_pools_df = pd.read_csv(core_pools_classification_file)
     
     print(f"✅ veBAL CSV: {len(vebal_df):,} rows")
     print(f"   Columns: {list(vebal_df.columns)}")
     print(f"✅ Votes_Bribes CSV: {len(votes_bribes_df):,} rows")
     print(f"   Columns: {list(votes_bribes_df.columns)}")
+    print(f"✅ Core Pools Classification CSV: {len(core_pools_df):,} rows")
+    print(f"   Columns: {list(core_pools_df.columns)}")
     
     required_vebal_cols = ['block_date', 'project_contract_address', 'gauge_address', 'blockchain']
     missing_vebal = [col for col in required_vebal_cols if col not in vebal_df.columns]
@@ -110,7 +122,31 @@ def create_final_dataset(
     
     print(f"✅ veBAL after cleaning: {len(vebal_df):,} rows")
     
+    print("\n🔗 Merging Core Pools classification with veBAL...")
+    
     vebal_df['block_date'] = pd.to_datetime(vebal_df['block_date'], errors='coerce')
+    core_pools_df['day'] = pd.to_datetime(core_pools_df['day'], errors='coerce')
+    
+    vebal_df['address_42'] = vebal_df['project_contract_address'].astype(str).str[:42].str.lower().str.strip()
+    core_pools_df['address_42'] = core_pools_df['address'].astype(str).str[:42].str.lower().str.strip()
+    
+    core_pools_df = core_pools_df.rename(columns={'day': 'block_date'})
+    
+    vebal_df = vebal_df.merge(
+        core_pools_df[['address_42', 'block_date', 'is_core']],
+        on=['address_42', 'block_date'],
+        how='left'
+    )
+    
+    vebal_df['is_core'] = vebal_df['is_core'].fillna(False).astype(bool)
+    
+    vebal_df = vebal_df.drop(columns=['address_42'])
+    
+    core_matched = vebal_df['is_core'].sum()
+    core_not_matched = len(vebal_df) - core_matched
+    print(f"✅ Core pools classification merged:")
+    print(f"   Core pools: {core_matched:,} ({100 * core_matched / len(vebal_df):.2f}%)")
+    print(f"   Non-core pools: {core_not_matched:,} ({100 * core_not_matched / len(vebal_df):.2f}%)")
     
     if 'day' in votes_bribes_df.columns:
         votes_bribes_df['day'] = pd.to_datetime(votes_bribes_df['day'], errors='coerce')
@@ -195,8 +231,12 @@ def create_final_dataset(
                 final_df[col] = 0
                 print(f"   ⚠️  Could not calculate {col} - columns not found")
         elif col == 'core_non_core':
-            final_df[col] = None
-            print(f"   Created (empty): {col} - will be filled later")
+            if 'is_core' in merged_df.columns:
+                final_df[col] = merged_df['is_core']
+                print(f"   ✅ Mapped: {col} from is_core column")
+            else:
+                final_df[col] = None
+                print(f"   ⚠️  Column not found: is_core - {col} created as empty")
         else:
             final_df[col] = None
             print(f"   ⚠️  Column not found: {col} - created as empty")

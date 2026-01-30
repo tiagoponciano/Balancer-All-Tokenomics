@@ -111,6 +111,16 @@ def run_merge_votes_bribes():
     merge_votes_main()
 
 
+def run_classify_core_pools():
+    """Classifies pools as core or non-core based on historical data"""
+    print("\n" + "=" * 60)
+    print("Starting Core Pools classification")
+    print("=" * 60 + "\n")
+    
+    from classify_core_pools import main as classify_main
+    classify_main()
+
+
 def run_create_final_dataset():
     """Creates final dataset combining veBAL.csv and votes_bribes_merged.csv"""
     print("\n" + "=" * 60)
@@ -140,20 +150,24 @@ def main():
         elif sys.argv[1] == "--merge-votes-bribes":
             run_merge_votes_bribes()
             return
+        elif sys.argv[1] == "--classify-core-pools":
+            run_classify_core_pools()
+            return
         elif sys.argv[1] == "--create-final":
             run_create_final_dataset()
             return
         elif sys.argv[1] == "--help" or sys.argv[1] == "-h":
             print("Usage: python main.py [options]")
             print("\nOptions:")
-            print("  (no options)     - Runs all sources (Dune + HiddenHand + Merge + Gauge + Final)")
-            print("  --dune-only      - Runs only Dune queries")
-            print("  --hiddenhand-only - Runs only HiddenHand collection")
-            print("  --merge-bribes   - Runs only Bribes data merge")
-            print("  --add-gauge      - Adds gauge_address to veBAL.csv")
-            print("  --merge-votes-bribes - Merges Votes_Emissions and Bribes")
-            print("  --create-final   - Creates final dataset (Balancer-All-Tokenomics.csv)")
-            print("  --help, -h       - Shows this message")
+            print("  (no options)          - Runs all sources (Dune + HiddenHand + Merge + Gauge + Classify + Final)")
+            print("  --dune-only           - Runs only Dune queries")
+            print("  --hiddenhand-only     - Runs only HiddenHand collection")
+            print("  --merge-bribes        - Runs only Bribes data merge")
+            print("  --add-gauge           - Adds gauge_address to veBAL.csv")
+            print("  --merge-votes-bribes  - Merges Votes_Emissions and Bribes")
+            print("  --classify-core-pools - Classifies pools as core or non-core")
+            print("  --create-final        - Creates final dataset (Balancer-All-Tokenomics.csv)")
+            print("  --help, -h            - Shows this message")
             return
     
     run_dune_queries()
@@ -161,6 +175,7 @@ def main():
     run_merge_bribes()
     run_add_gauge_address()
     run_merge_votes_bribes()
+    run_classify_core_pools()
     run_create_final_dataset()
     
     print("\n" + "=" * 60)

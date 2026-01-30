@@ -33,7 +33,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
-CORE_POOLS_HISTORY_FILE = DATA_DIR / "classification_core_pools.csv"
+CORE_POOLS_HISTORY_FILE = DATA_DIR / "results.csv"
 DAILY_DATASET_FILE = DATA_DIR / "veBAL.csv"
 OUTPUT_FILE = DATA_DIR / "classification_core_pools.csv"
 
