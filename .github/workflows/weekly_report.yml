@@ -1,0 +1,66 @@
+name: Weekly Balancer Tokenomics Report
+
+on:
+  schedule:
+    # Roda toda segunda-feira às 12:00 AM UTC (9:00 AM BRT)
+    - cron: '0 12 * * 1'
+  workflow_dispatch:  # Permite execução manual
+
+jobs:
+  generate-and-send-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run data collection pipeline
+      env:
+        DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+        SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+        SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      run: |
+        cd script
+        python main.py
+    
+    - name: Merge votes and bribes
+      run: |
+        cd script
+        python merge_votes_bribes.py
+    
+    - name: Create final dataset
+      run: |
+        cd script
+        python create_final_dataset.py
+    
+    - name: Send email with CSV
+      env:
+        SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+        SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      run: |
+        cd script
+        python send_email.py
+      continue-on-error: true  # Continua mesmo se o e-mail falhar
+    
+    - name: Upload CSV as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: balancer-tokenomics-report
+        path: data/Balancer-All-Tokenomics.csv
+        retention-days: 30
