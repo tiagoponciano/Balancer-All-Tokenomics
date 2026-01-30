@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Script para fazer merge entre Votes_Emissions.csv e Bribes.csv
+Script to merge Votes_Emissions.csv and Bribes.csv
 
-Chaves de match:
+Match keys:
 - gauge_address
 - day
 - blockchain
 
-Renomeações:
+Renames:
 - amount_usdc (Bribes) → bribe_amount_usd
 - daily_emissions (Votes_Emissions) → bal_emited_votes
 - total_votes (Votes_Emissions) → votes_received
@@ -16,15 +16,11 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
-# Configurações
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
-# Arquivos de entrada
 VOTES_EMISSIONS_FILE = DATA_DIR / "Votes_Emissions.csv"
 BRIBES_FILE = DATA_DIR / "Bribes.csv"
-
-# Arquivo de saída
 OUTPUT_FILE = DATA_DIR / "votes_bribes_merged.csv"
 
 
@@ -34,38 +30,48 @@ def merge_votes_bribes(
     output_file: Path = OUTPUT_FILE
 ) -> pd.DataFrame:
     """
-    Faz merge entre Votes_Emissions.csv e Bribes.csv.
+    Merges Votes_Emissions.csv and Bribes.csv.
+    
+    Performs an outer merge on gauge_address, day, and blockchain. If multiple
+    bribes exist for the same (gauge_address, day, blockchain) combination,
+    they are aggregated by summing the bribe_amount_usd values.
+    
+    Column renames:
+    - amount_usdc → bribe_amount_usd
+    - daily_emissions → bal_emited_votes
+    - total_votes → votes_received
     
     Args:
-        votes_file: Caminho para o CSV de Votes_Emissions
-        bribes_file: Caminho para o CSV de Bribes
-        output_file: Caminho para o arquivo de saída
+        votes_file: Path to Votes_Emissions CSV file
+        bribes_file: Path to Bribes CSV file
+        output_file: Path to output CSV file
         
     Returns:
-        DataFrame com os dados mergeados
+        DataFrame with merged data containing all records from both sources
+        
+    Raises:
+        FileNotFoundError: If input files don't exist
+        ValueError: If required columns are missing
     """
     print("=" * 60)
-    print("🔗 Merge de Votes_Emissions e Bribes")
+    print("🔗 Merging Votes_Emissions and Bribes")
     print("=" * 60)
     
-    # Verificar se os arquivos existem
     if not votes_file.exists():
-        raise FileNotFoundError(f"Arquivo não encontrado: {votes_file}")
+        raise FileNotFoundError(f"File not found: {votes_file}")
     if not bribes_file.exists():
-        raise FileNotFoundError(f"Arquivo não encontrado: {bribes_file}")
+        raise FileNotFoundError(f"File not found: {bribes_file}")
     
-    print("\n📖 Lendo arquivos...")
+    print("\n📖 Reading files...")
     
-    # Ler dados
     votes_df = pd.read_csv(votes_file)
     bribes_df = pd.read_csv(bribes_file)
     
-    print(f"✅ Votes_Emissions CSV: {len(votes_df):,} linhas")
-    print(f"   Colunas: {list(votes_df.columns)}")
-    print(f"✅ Bribes CSV: {len(bribes_df):,} linhas")
-    print(f"   Colunas: {list(bribes_df.columns)}")
+    print(f"✅ Votes_Emissions CSV: {len(votes_df):,} rows")
+    print(f"   Columns: {list(votes_df.columns)}")
+    print(f"✅ Bribes CSV: {len(bribes_df):,} rows")
+    print(f"   Columns: {list(bribes_df.columns)}")
     
-    # Verificar colunas necessárias
     required_votes_cols = ['gauge_address', 'day', 'blockchain']
     required_bribes_cols = ['gauge_address', 'day', 'blockchain']
     
@@ -73,24 +79,21 @@ def merge_votes_bribes(
     missing_bribes = [col for col in required_bribes_cols if col not in bribes_df.columns]
     
     if missing_votes:
-        raise ValueError(f"Colunas faltando no Votes_Emissions: {missing_votes}")
+        raise ValueError(f"Missing columns in Votes_Emissions: {missing_votes}")
     if missing_bribes:
-        raise ValueError(f"Colunas faltando no Bribes: {missing_bribes}")
+        raise ValueError(f"Missing columns in Bribes: {missing_bribes}")
     
-    print("\n🧹 Limpando e preparando dados...")
+    print("\n🧹 Cleaning and preparing data...")
     
-    # Converter datas para datetime se necessário
     votes_df['day'] = pd.to_datetime(votes_df['day'], errors='coerce')
     bribes_df['day'] = pd.to_datetime(bribes_df['day'], errors='coerce')
     
-    # Normalizar gauge_address e blockchain (lowercase, remover espaços)
     votes_df['gauge_address'] = votes_df['gauge_address'].astype(str).str.lower().str.strip()
     votes_df['blockchain'] = votes_df['blockchain'].astype(str).str.lower().str.strip()
     
     bribes_df['gauge_address'] = bribes_df['gauge_address'].astype(str).str.lower().str.strip()
     bribes_df['blockchain'] = bribes_df['blockchain'].astype(str).str.lower().str.strip()
     
-    # Remover linhas com valores vazios nas chaves de match
     initial_votes = len(votes_df)
     votes_df = votes_df[
         votes_df['gauge_address'].notna() & 
@@ -101,7 +104,7 @@ def merge_votes_bribes(
         (votes_df['blockchain'] != '')
     ]
     if len(votes_df) < initial_votes:
-        print(f"   Removidas {initial_votes - len(votes_df):,} linhas inválidas do Votes_Emissions")
+        print(f"   Removed {initial_votes - len(votes_df):,} invalid rows from Votes_Emissions")
     
     initial_bribes = len(bribes_df)
     bribes_df = bribes_df[
@@ -113,20 +116,17 @@ def merge_votes_bribes(
         (bribes_df['blockchain'] != '')
     ]
     if len(bribes_df) < initial_bribes:
-        print(f"   Removidas {initial_bribes - len(bribes_df):,} linhas inválidas do Bribes")
+        print(f"   Removed {initial_bribes - len(bribes_df):,} invalid rows from Bribes")
     
-    print(f"✅ Votes_Emissions após limpeza: {len(votes_df):,} linhas")
-    print(f"✅ Bribes após limpeza: {len(bribes_df):,} linhas")
+    print(f"✅ Votes_Emissions after cleaning: {len(votes_df):,} rows")
+    print(f"✅ Bribes after cleaning: {len(bribes_df):,} rows")
     
-    # Renomear colunas antes do merge
-    print("\n🔄 Renomeando colunas...")
+    print("\n🔄 Renaming columns...")
     
-    # Renomear no Bribes
     bribes_renamed = bribes_df.rename(columns={
         'amount_usdc': 'bribe_amount_usd'
     })
     
-    # Renomear no Votes_Emissions
     votes_renamed = votes_df.rename(columns={
         'daily_emissions': 'bal_emited_votes',
         'total_votes': 'votes_received'
@@ -136,11 +136,9 @@ def merge_votes_bribes(
     print("   Votes_Emissions: daily_emissions → bal_emited_votes")
     print("   Votes_Emissions: total_votes → votes_received")
     
-    # Fazer merge
-    print("\n🔗 Fazendo merge dos dados...")
-    print("   Chaves de match: gauge_address, day, blockchain")
+    print("\n🔗 Merging data...")
+    print("   Match keys: gauge_address, day, blockchain")
     
-    # Merge com outer join para manter todos os registros
     merged_df = pd.merge(
         votes_renamed,
         bribes_renamed,
@@ -150,7 +148,6 @@ def merge_votes_bribes(
         indicator=True
     )
     
-    # Identificar origem dos dados
     merged_df['source'] = merged_df['_merge'].map({
         'left_only': 'votes_only',
         'right_only': 'bribes_only',
@@ -158,55 +155,47 @@ def merge_votes_bribes(
     })
     merged_df = merged_df.drop(columns=['_merge'])
     
-    print(f"✅ Merge concluído: {len(merged_df):,} linhas")
+    print(f"✅ Merge completed: {len(merged_df):,} rows")
     
-    # Estatísticas do merge
-    print(f"\n📊 Estatísticas do merge:")
-    print(f"   Total de linhas após merge: {len(merged_df):,}")
-    print(f"   Linhas apenas em Votes_Emissions: {(merged_df['source'] == 'votes_only').sum():,}")
-    print(f"   Linhas apenas em Bribes: {(merged_df['source'] == 'bribes_only').sum():,}")
-    print(f"   Linhas em ambos (match): {(merged_df['source'] == 'both').sum():,}")
+    print(f"\n📊 Merge statistics:")
+    print(f"   Total rows after merge: {len(merged_df):,}")
+    print(f"   Rows only in Votes_Emissions: {(merged_df['source'] == 'votes_only').sum():,}")
+    print(f"   Rows only in Bribes: {(merged_df['source'] == 'bribes_only').sum():,}")
+    print(f"   Rows in both (match): {(merged_df['source'] == 'both').sum():,}")
     
-    # Estatísticas de match por gauge_address
     matched_gauges = merged_df[merged_df['source'] == 'both']['gauge_address'].nunique()
     total_gauges_votes = votes_df['gauge_address'].nunique()
     total_gauges_bribes = bribes_df['gauge_address'].nunique()
     
-    print(f"\n   Gauge addresses únicos:")
-    print(f"     No Votes_Emissions: {total_gauges_votes:,}")
-    print(f"     No Bribes: {total_gauges_bribes:,}")
-    print(f"     Com match: {matched_gauges:,}")
+    print(f"\n   Unique gauge addresses:")
+    print(f"     In Votes_Emissions: {total_gauges_votes:,}")
+    print(f"     In Bribes: {total_gauges_bribes:,}")
+    print(f"     With match: {matched_gauges:,}")
     
-    # Verificar se há valores duplicados de bribe_amount_usd para o mesmo match
-    # (pode haver múltiplos bribes no mesmo dia)
     if 'bribe_amount_usd' in merged_df.columns:
         duplicates_check = merged_df[
             (merged_df['source'] == 'both') & 
             merged_df.duplicated(subset=['gauge_address', 'day', 'blockchain'], keep=False)
         ]
         if len(duplicates_check) > 0:
-            print(f"\n⚠️  Aviso: {len(duplicates_check):,} linhas têm múltiplos registros para o mesmo (gauge_address, day, blockchain)")
-            print("   Isso pode indicar múltiplos bribes no mesmo dia. Verificando...")
+            print(f"\n⚠️  Warning: {len(duplicates_check):,} rows have multiple records for the same (gauge_address, day, blockchain)")
+            print("   This may indicate multiple bribes on the same day. Checking...")
             
-            # Agrupar e somar bribes duplicados
-            print("   Agrupando e somando bribes duplicados...")
+            print("   Grouping and summing duplicate bribes...")
             
-            # Separar colunas de votes e bribes
             votes_cols = [col for col in merged_df.columns if col.endswith('_votes') or col in ['gauge_address', 'day', 'blockchain', 'source']]
             bribes_cols = [col for col in merged_df.columns if col.endswith('_bribes') or col == 'bribe_amount_usd']
             
-            # Para linhas com match, agrupar por gauge_address, day, blockchain e somar bribes
             matched_rows = merged_df[merged_df['source'] == 'both'].copy()
             
-            # Agrupar e agregar
             agg_dict = {}
             for col in matched_rows.columns:
                 if col in ['gauge_address', 'day', 'blockchain']:
                     agg_dict[col] = 'first'
                 elif col == 'bribe_amount_usd':
-                    agg_dict[col] = 'sum'  # Somar múltiplos bribes
+                    agg_dict[col] = 'sum'
                 elif col.endswith('_votes'):
-                    agg_dict[col] = 'first'  # Valores de votes são únicos
+                    agg_dict[col] = 'first'
                 elif col.endswith('_bribes') and col != 'bribe_amount_usd':
                     agg_dict[col] = 'first'
                 elif col == 'source':
@@ -216,64 +205,66 @@ def merge_votes_bribes(
             
             matched_grouped = matched_rows.groupby(['gauge_address', 'day', 'blockchain']).agg(agg_dict).reset_index()
             
-            # Combinar com linhas sem match
             votes_only = merged_df[merged_df['source'] == 'votes_only']
             bribes_only = merged_df[merged_df['source'] == 'bribes_only']
             
-            # Reconstruir o DataFrame
             merged_df = pd.concat([matched_grouped, votes_only, bribes_only], ignore_index=True)
             
-            print(f"   Após agrupamento: {len(merged_df):,} linhas")
+            print(f"   After grouping: {len(merged_df):,} rows")
     
-    # Ordenar por day, blockchain, gauge_address
     merged_df = merged_df.sort_values(['day', 'blockchain', 'gauge_address'], na_position='last')
     
-    # Salvar resultado
-    print(f"\n💾 Salvando resultado em {output_file}...")
+    print(f"\n💾 Saving result to {output_file}...")
     merged_df.to_csv(output_file, index=False)
     
-    print(f"✅ Arquivo salvo com sucesso!")
-    print(f"   Total de linhas: {len(merged_df):,}")
-    print(f"   Total de colunas: {len(merged_df.columns)}")
+    print(f"✅ File saved successfully!")
+    print(f"   Total rows: {len(merged_df):,}")
+    print(f"   Total columns: {len(merged_df.columns)}")
     
-    # Mostrar amostra dos dados
-    print(f"\n📋 Amostra dos dados (primeiras 10 linhas com match):")
+    print(f"\n📋 Data sample (first 10 rows with match):")
     sample = merged_df[merged_df['source'] == 'both'].head(10)
     if len(sample) > 0:
-        # Mostrar colunas principais
         cols_to_show = ['day', 'blockchain', 'gauge_address', 'bal_emited_votes', 'votes_received', 'bribe_amount_usd']
         available_cols = [col for col in cols_to_show if col in sample.columns]
         print(sample[available_cols].to_string(index=False))
     else:
-        print("   Nenhuma linha com match encontrada para mostrar")
+        print("   No rows with match found to display")
     
-    # Estatísticas finais
-    print(f"\n📊 Estatísticas finais:")
+    print(f"\n📊 Final statistics:")
     if 'bribe_amount_usd' in merged_df.columns:
         total_bribes = merged_df['bribe_amount_usd'].sum()
-        print(f"   Total de bribes (soma): {total_bribes:,.2f} USD")
+        print(f"   Total bribes (sum): {total_bribes:,.2f} USD")
     
     if 'bal_emited_votes' in merged_df.columns:
         total_emissions = merged_df['bal_emited_votes'].sum()
-        print(f"   Total de BAL emitido (soma): {total_emissions:,.2f}")
+        print(f"   Total BAL emitted (sum): {total_emissions:,.2f}")
     
     if 'votes_received' in merged_df.columns:
         total_votes = merged_df['votes_received'].sum()
-        print(f"   Total de votes (soma): {total_votes:,.2f}")
+        print(f"   Total votes (sum): {total_votes:,.2f}")
     
     return merged_df
 
 
 def main():
-    """Função principal"""
+    """
+    Main function to execute the votes and bribes merge process.
+    
+    Returns:
+        DataFrame with merged votes and bribes data
+        
+    Raises:
+        FileNotFoundError: If input files don't exist
+        ValueError: If required columns are missing
+    """
     try:
         result_df = merge_votes_bribes()
         print("\n" + "=" * 60)
-        print("✅ Processo concluído com sucesso!")
+        print("✅ Process completed successfully!")
         print("=" * 60)
         return result_df
     except Exception as e:
-        print(f"\n❌ Erro durante o processamento: {e}")
+        print(f"\n❌ Error during processing: {e}")
         import traceback
         traceback.print_exc()
         raise

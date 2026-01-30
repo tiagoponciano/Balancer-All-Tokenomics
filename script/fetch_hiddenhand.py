@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script para coletar dados de propostas de bribes da API do HiddenHand Finance para Balancer
+Script to collect bribe proposal data from HiddenHand Finance API for Balancer
 """
 import os
 import requests
@@ -11,7 +11,6 @@ from typing import List, Dict, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Carregar variáveis de ambiente
 PROJECT_ROOT = Path(__file__).parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -19,22 +18,24 @@ API_BASE_URL = "https://api.hiddenhand.finance/proposal/balancer"
 DATA_DIR = PROJECT_ROOT / "data"
 OUTPUT_FILE = DATA_DIR / "hiddenhand_bribes.csv"
 
-# Timestamp inicial: 13 de abril de 2022 00:00:00 UTC (primeira data disponível na API)
-# datetime(2022, 4, 13, 0, 0, 0).timestamp() = 1649894400
 START_TIMESTAMP = 1649894400
 REQUEST_DELAY = 1
 
 
 def calculate_weekly_timestamps(start_timestamp: int, end_date: Optional[datetime] = None) -> List[int]:
     """
-    Calcula timestamps semanais desde a data inicial até hoje
+    Calculates weekly timestamps from the start date until today.
+    
+    Generates a list of timestamps, one for each week, starting from the
+    specified start_timestamp and continuing until the end_date (default: today).
+    Each timestamp represents the beginning of a week.
     
     Args:
-        start_timestamp: Timestamp inicial
-        end_date: Data final (padrão: hoje)
+        start_timestamp: Initial timestamp (Unix timestamp)
+        end_date: End date (default: current date/time)
         
     Returns:
-        Lista de timestamps semanais
+        List of weekly timestamps (Unix timestamps)
     """
     if end_date is None:
         end_date = datetime.now()
@@ -54,14 +55,17 @@ def calculate_weekly_timestamps(start_timestamp: int, end_date: Optional[datetim
 
 def fetch_proposal_data(timestamp: int, retry_count: int = 2) -> Optional[Dict]:
     """
-    Busca dados de propostas para uma semana específica
+    Fetches proposal data for a specific week.
+    
+    Makes HTTP GET request to HiddenHand Finance API for the specified timestamp.
+    Implements retry logic for handling errors (500 status, timeouts, etc.).
     
     Args:
-        timestamp: Timestamp da semana
-        retry_count: Número de tentativas em caso de erro
+        timestamp: Week timestamp to fetch data for
+        retry_count: Number of retry attempts in case of error
         
     Returns:
-        Dados JSON da resposta ou None em caso de falha
+        JSON data from the API response or None if request fails
     """
     url = f"{API_BASE_URL}/{timestamp}"
     
@@ -104,14 +108,24 @@ def fetch_proposal_data(timestamp: int, retry_count: int = 2) -> Optional[Dict]:
 
 def parse_proposal_data(json_data: Dict, timestamp: int) -> List[Dict]:
     """
-    Extrai informações relevantes do JSON da API
+    Extracts relevant information from the API JSON response.
+    
+    Parses the JSON response from HiddenHand Finance API and extracts
+    proposal information including proposal hash, pool name, pool ID,
+    and derived pool address.
     
     Args:
-        json_data: Dados JSON da resposta
-        timestamp: Timestamp da semana
+        json_data: JSON data from API response
+        timestamp: Week timestamp
         
     Returns:
-        Lista de dicionários com dados extraídos
+        List of dictionaries with extracted data, each containing:
+        - week_timestamp: Timestamp of the week
+        - week_date: Formatted date string (YYYY-MM-DD)
+        - proposal_hash: Unique proposal hash
+        - pool_name: Name of the pool
+        - pool_id: Pool identifier
+        - derived_pool_address: Pool address extracted from pool_id (first 42 chars)
     """
     results = []
     
@@ -171,12 +185,32 @@ def parse_proposal_data(json_data: Dict, timestamp: int) -> List[Dict]:
 
 
 def main():
-    """Função principal do script"""
+    """
+    Main function to execute the HiddenHand Finance data collection process.
+    
+    Collects bribe proposal data from HiddenHand Finance API for Balancer,
+    processing weekly timestamps from April 13, 2022 until the current date.
+    Saves collected data to hiddenhand_bribes.csv with deduplication and
+    sorting by timestamp (most recent first).
+    
+    The function:
+    1. Calculates all weekly timestamps since the start date
+    2. Fetches proposal data for each week with retry logic
+    3. Parses and extracts relevant information
+    4. Saves partial progress every 10 weeks
+    5. Removes duplicates and saves final CSV
+    
+    Returns:
+        None
+        
+    Raises:
+        FileNotFoundError: If data directory cannot be created
+        requests.exceptions.RequestException: If API requests fail consistently
+    """
     print("=" * 60)
     print("HiddenHand Finance Data Collector")
     print("=" * 60)
     
-    # Criar diretório se não existir
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
     start_date_str = datetime.fromtimestamp(START_TIMESTAMP).strftime('%Y-%m-%d %H:%M:%S')

@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 """
-Script legado para consumir dados do Dune e gerar CSV
-(Use main.py para múltiplas queries)
+Legacy script to fetch data from Dune and generate CSV
+(Use main.py for multiple queries)
 """
 from pathlib import Path
 from dune_fetcher import fetch_and_save
 
-# Configurações
 API_KEY = "QTKSQUbw3YzhNCLgsXqEbEZG7iJheA3z"
 QUERY_ID = 6623057
 OUTPUT_FILE = "veBAL.csv"
 
-# Obter o diretório raiz do projeto
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
 def main():
-    """Função principal para buscar dados do Dune e gerar CSV"""
+    """
+    Main function to fetch data from Dune and generate CSV.
+    
+    Fetches data from a single Dune query and saves it to a CSV file.
+    This is a legacy script - use main.py for processing multiple queries.
+    
+    Returns:
+        Tuple (success: bool, rows: int, path: Path) from fetch_and_save
+    """
     fetch_and_save(
         api_key=API_KEY,
         query_id=QUERY_ID,

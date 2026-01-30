@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to send email with final CSV attached
 """
@@ -12,21 +11,16 @@ from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Load environment variables
 PROJECT_ROOT = Path(__file__).parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
-# Email settings (from .env or GitHub secrets)
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 EMAIL_FROM = os.getenv("EMAIL_FROM")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-EMAIL_TO = os.getenv("EMAIL_TO")  # Boss email
-
-# CSV file to be sent
+EMAIL_TO = os.getenv("EMAIL_TO")  
 CSV_FILE = PROJECT_ROOT / "data" / "Balancer-All-Tokenomics.csv"
 
-# Email template
 EMAIL_TEMPLATE = PROJECT_ROOT / "template" / "email_template.html"
 
 
@@ -40,10 +34,8 @@ def load_email_template() -> str:
     if not EMAIL_TEMPLATE.exists():
         raise FileNotFoundError(f"Email template not found: {EMAIL_TEMPLATE}")
     
-    # Read template
     html_content = EMAIL_TEMPLATE.read_text(encoding='utf-8')
     
-    # Replace placeholders
     timestamp = datetime.now().strftime("%m/%d/%Y at %H:%M")
     html_content = html_content.replace("{{ timestamp }}", timestamp)
     
@@ -65,7 +57,6 @@ def send_email_with_csv(
     print("📧 Sending Email with CSV")
     print("=" * 60)
     
-    # Check settings
     if not EMAIL_FROM:
         raise ValueError("EMAIL_FROM not configured. Configure in .env or GitHub Secrets")
     if not EMAIL_PASSWORD:
@@ -73,12 +64,10 @@ def send_email_with_csv(
     if not EMAIL_TO:
         raise ValueError("EMAIL_TO not configured. Configure in .env or GitHub Secrets")
     
-    # Prepare email subject
     if subject is None:
         date_str = datetime.now().strftime("%m/%d/%Y")
         subject = f"Balancer Tokenomics Dataset Update - {date_str}"
     
-    # Load email HTML template
     print("\n🎨 Loading email template...")
     try:
         html_body = load_email_template()
@@ -93,16 +82,13 @@ def send_email_with_csv(
     print(f"   SMTP Server: {SMTP_SERVER}:{SMTP_PORT}")
     print(f"   Format: HTML")
     
-    # Create message
     msg = MIMEMultipart()
     msg['From'] = EMAIL_FROM
     msg['To'] = EMAIL_TO
     msg['Subject'] = subject
     
-    # Add email body (HTML)
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
     
-    # Attach CSV file only if it exists
     if csv_file.exists():
         print(f"\n📎 Attaching file: {csv_file.name}")
         try:

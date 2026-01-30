@@ -1,29 +1,24 @@
 #!/usr/bin/env python3
 """
-Script para criar o dataset final combinando veBAL.csv e votes_bribes_merged.csv
+Script to create the final dataset by combining veBAL.csv and votes_bribes_merged.csv
 
-Merge baseado em:
+Merge based on:
 - gauge_address
 - block_date (veBAL) = day (votes_bribes_merged)
 - blockchain
 
-Remove linhas onde project_contract_address não tem gauge_address.
+Removes rows where project_contract_address does not have gauge_address.
 """
 import pandas as pd
 from pathlib import Path
 
-# Configurações
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
-# Arquivos de entrada
 VEBAL_FILE = DATA_DIR / "veBAL.csv"
 VOTES_BRIBES_FILE = DATA_DIR / "votes_bribes_merged.csv"
-
-# Arquivo de saída
 OUTPUT_FILE = DATA_DIR / "Balancer-All-Tokenomics.csv"
 
-# Colunas desejadas na ordem final
 FINAL_COLUMNS = [
     'blockchain',
     'project',
@@ -54,51 +49,55 @@ def create_final_dataset(
     output_file: Path = OUTPUT_FILE
 ) -> pd.DataFrame:
     """
-    Cria o dataset final combinando veBAL.csv e votes_bribes_merged.csv.
+    Creates the final dataset by combining veBAL.csv and votes_bribes_merged.csv.
+    
+    The function performs a left merge on gauge_address, block_date, and blockchain.
+    Rows from veBAL where gauge_address is missing or invalid are removed before merging.
+    The final dataset is sorted by block_date (descending), blockchain, and 
+    project_contract_address.
     
     Args:
-        vebal_file: Caminho para o CSV do veBAL
-        votes_bribes_file: Caminho para o CSV do votes_bribes_merged
-        output_file: Caminho para o arquivo de saída
+        vebal_file: Path to veBAL CSV file
+        votes_bribes_file: Path to votes_bribes_merged CSV file
+        output_file: Path to output CSV file
         
     Returns:
-        DataFrame com o dataset final
+        DataFrame with the final dataset containing all columns specified in FINAL_COLUMNS
+        
+    Raises:
+        FileNotFoundError: If input files don't exist
+        ValueError: If required columns are missing
     """
     print("=" * 60)
-    print("🎯 Criando Dataset Final - Balancer All Tokenomics")
+    print("🎯 Creating Final Dataset - Balancer All Tokenomics")
     print("=" * 60)
     
-    # Verificar se os arquivos existem
     if not vebal_file.exists():
-        raise FileNotFoundError(f"Arquivo não encontrado: {vebal_file}")
+        raise FileNotFoundError(f"File not found: {vebal_file}")
     if not votes_bribes_file.exists():
-        raise FileNotFoundError(f"Arquivo não encontrado: {votes_bribes_file}")
+        raise FileNotFoundError(f"File not found: {votes_bribes_file}")
     
-    print("\n📖 Lendo arquivos...")
+    print("\n📖 Reading files...")
     
-    # Ler dados
     vebal_df = pd.read_csv(vebal_file)
     votes_bribes_df = pd.read_csv(votes_bribes_file)
     
-    print(f"✅ veBAL CSV: {len(vebal_df):,} linhas")
-    print(f"   Colunas: {list(vebal_df.columns)}")
-    print(f"✅ Votes_Bribes CSV: {len(votes_bribes_df):,} linhas")
-    print(f"   Colunas: {list(votes_bribes_df.columns)}")
+    print(f"✅ veBAL CSV: {len(vebal_df):,} rows")
+    print(f"   Columns: {list(vebal_df.columns)}")
+    print(f"✅ Votes_Bribes CSV: {len(votes_bribes_df):,} rows")
+    print(f"   Columns: {list(votes_bribes_df.columns)}")
     
-    # Verificar colunas necessárias
     required_vebal_cols = ['block_date', 'project_contract_address', 'gauge_address', 'blockchain']
     missing_vebal = [col for col in required_vebal_cols if col not in vebal_df.columns]
     
     if missing_vebal:
-        raise ValueError(f"Colunas faltando no veBAL: {missing_vebal}")
+        raise ValueError(f"Missing columns in veBAL: {missing_vebal}")
     
-    # Verificar se day existe no votes_bribes (pode ser day ou block_date)
     if 'day' not in votes_bribes_df.columns and 'block_date' not in votes_bribes_df.columns:
-        raise ValueError("Coluna 'day' ou 'block_date' não encontrada no votes_bribes_merged")
+        raise ValueError("Column 'day' or 'block_date' not found in votes_bribes_merged")
     
-    print("\n🧹 Limpando e preparando dados...")
+    print("\n🧹 Cleaning and preparing data...")
     
-    # Remover linhas onde project_contract_address não tem gauge_address
     initial_vebal = len(vebal_df)
     vebal_df = vebal_df[
         vebal_df['gauge_address'].notna() & 
@@ -107,14 +106,12 @@ def create_final_dataset(
     ]
     removed = initial_vebal - len(vebal_df)
     if removed > 0:
-        print(f"   Removidas {removed:,} linhas sem gauge_address do veBAL")
+        print(f"   Removed {removed:,} rows without gauge_address from veBAL")
     
-    print(f"✅ veBAL após limpeza: {len(vebal_df):,} linhas")
+    print(f"✅ veBAL after cleaning: {len(vebal_df):,} rows")
     
-    # Converter datas para datetime
     vebal_df['block_date'] = pd.to_datetime(vebal_df['block_date'], errors='coerce')
     
-    # Normalizar coluna de data no votes_bribes
     if 'day' in votes_bribes_df.columns:
         votes_bribes_df['day'] = pd.to_datetime(votes_bribes_df['day'], errors='coerce')
         date_col_bribes = 'day'
@@ -122,7 +119,6 @@ def create_final_dataset(
         votes_bribes_df['block_date'] = pd.to_datetime(votes_bribes_df['block_date'], errors='coerce')
         date_col_bribes = 'block_date'
     
-    # Normalizar gauge_address e blockchain (lowercase, remover espaços)
     vebal_df['gauge_address'] = vebal_df['gauge_address'].astype(str).str.lower().str.strip()
     vebal_df['blockchain'] = vebal_df['blockchain'].astype(str).str.lower().str.strip()
     
@@ -130,7 +126,6 @@ def create_final_dataset(
     if 'blockchain' in votes_bribes_df.columns:
         votes_bribes_df['blockchain'] = votes_bribes_df['blockchain'].astype(str).str.lower().str.strip()
     
-    # Remover linhas com valores inválidos nas chaves de match
     initial_votes_bribes = len(votes_bribes_df)
     votes_bribes_df = votes_bribes_df[
         votes_bribes_df['gauge_address'].notna() & 
@@ -139,19 +134,16 @@ def create_final_dataset(
         votes_bribes_df[date_col_bribes].notna()
     ]
     if len(votes_bribes_df) < initial_votes_bribes:
-        print(f"   Removidas {initial_votes_bribes - len(votes_bribes_df):,} linhas inválidas do votes_bribes_merged")
+        print(f"   Removed {initial_votes_bribes - len(votes_bribes_df):,} invalid rows from votes_bribes_merged")
     
-    print(f"✅ Votes_Bribes após limpeza: {len(votes_bribes_df):,} linhas")
+    print(f"✅ Votes_Bribes after cleaning: {len(votes_bribes_df):,} rows")
     
-    # Renomear coluna de data no votes_bribes para block_date se necessário
     if date_col_bribes == 'day':
         votes_bribes_df = votes_bribes_df.rename(columns={'day': 'block_date'})
     
-    # Fazer merge
-    print("\n🔗 Fazendo merge dos dados...")
-    print("   Chaves de match: gauge_address, block_date, blockchain")
+    print("\n🔗 Merging data...")
+    print("   Match keys: gauge_address, block_date, blockchain")
     
-    # Merge com left join (manter todas as linhas do veBAL)
     merged_df = pd.merge(
         vebal_df,
         votes_bribes_df,
@@ -160,30 +152,25 @@ def create_final_dataset(
         suffixes=('', '_votes_bribes')
     )
     
-    print(f"✅ Merge concluído: {len(merged_df):,} linhas")
+    print(f"✅ Merge completed: {len(merged_df):,} rows")
     
-    # Estatísticas do merge
     matched_count = merged_df['bal_emited_votes'].notna().sum() if 'bal_emited_votes' in merged_df.columns else 0
     unmatched_count = len(merged_df) - matched_count
     
-    print(f"\n📊 Estatísticas do merge:")
-    print(f"   Total de linhas: {len(merged_df):,}")
-    print(f"   Linhas com dados de votes/bribes: {matched_count:,} ({100 * matched_count / len(merged_df):.2f}%)")
-    print(f"   Linhas sem dados de votes/bribes: {unmatched_count:,} ({100 * unmatched_count / len(merged_df):.2f}%)")
+    print(f"\n📊 Merge statistics:")
+    print(f"   Total rows: {len(merged_df):,}")
+    print(f"   Rows with votes/bribes data: {matched_count:,} ({100 * matched_count / len(merged_df):.2f}%)")
+    print(f"   Rows without votes/bribes data: {unmatched_count:,} ({100 * unmatched_count / len(merged_df):.2f}%)")
     
-    # Preparar colunas finais
-    print("\n📋 Preparando colunas finais...")
+    print("\n📋 Preparing final columns...")
     
-    # Verificar quais colunas existem e criar as que faltam
     final_df = pd.DataFrame()
     
     for col in FINAL_COLUMNS:
-        # Tentar encontrar a coluna (pode ter sufixo após merge)
         col_found = None
         if col in merged_df.columns:
             col_found = col
         else:
-            # Procurar coluna com sufixo
             for merged_col in merged_df.columns:
                 if merged_col.startswith(col) and not merged_col.endswith('_votes_bribes'):
                     col_found = merged_col
@@ -192,11 +179,9 @@ def create_final_dataset(
         if col_found:
             final_df[col] = merged_df[col_found]
         elif col == 'swap_fee_%':
-            # Calcular swap_fee_% se não existir
             swap_fee_col = None
             swap_amount_col = None
             
-            # Procurar colunas
             for c in merged_df.columns:
                 if 'swap_fee_usd' in c.lower() and not c.endswith('_votes_bribes'):
                     swap_fee_col = c
@@ -205,75 +190,76 @@ def create_final_dataset(
             
             if swap_fee_col and swap_amount_col:
                 final_df[col] = (merged_df[swap_fee_col] / merged_df[swap_amount_col] * 100).fillna(0)
-                print(f"   Calculada: {col} a partir de {swap_fee_col} e {swap_amount_col}")
+                print(f"   Calculated: {col} from {swap_fee_col} and {swap_amount_col}")
             else:
                 final_df[col] = 0
-                print(f"   ⚠️  Não foi possível calcular {col} - colunas não encontradas")
+                print(f"   ⚠️  Could not calculate {col} - columns not found")
         elif col == 'core_non_core':
-            # Esta coluna virá do classification_core_pools.csv (será adicionada depois)
             final_df[col] = None
-            print(f"   Criada (vazia): {col} - será preenchida depois")
+            print(f"   Created (empty): {col} - will be filled later")
         else:
-            # Coluna não encontrada, criar como None
             final_df[col] = None
-            print(f"   ⚠️  Coluna não encontrada: {col} - criada como vazia")
+            print(f"   ⚠️  Column not found: {col} - created as empty")
     
-    # Remover linhas duplicadas se houver
     initial_count = len(final_df)
     final_df = final_df.drop_duplicates()
     if len(final_df) < initial_count:
-        print(f"\n🧹 Removidas {initial_count - len(final_df):,} duplicatas")
+        print(f"\n🧹 Removed {initial_count - len(final_df):,} duplicates")
     
-    # Sort by block_date descending (most recent first), then blockchain, project_contract_address
     final_df = final_df.sort_values(['block_date', 'blockchain', 'project_contract_address'], ascending=[False, True, True], na_position='last')
     
-    # Estatísticas finais
-    print(f"\n📊 Estatísticas finais:")
-    print(f"   Total de linhas: {len(final_df):,}")
-    print(f"   Total de colunas: {len(final_df.columns)}")
-    print(f"   Pools únicas: {final_df['project_contract_address'].nunique():,}")
-    print(f"   Gauge addresses únicos: {final_df['gauge_address'].nunique():,}")
+    print(f"\n📊 Final statistics:")
+    print(f"   Total rows: {len(final_df):,}")
+    print(f"   Total columns: {len(final_df.columns)}")
+    print(f"   Unique pools: {final_df['project_contract_address'].nunique():,}")
+    print(f"   Unique gauge addresses: {final_df['gauge_address'].nunique():,}")
     
     if 'bribe_amount_usd' in final_df.columns:
         total_bribes = final_df['bribe_amount_usd'].sum()
-        print(f"   Total de bribes: {total_bribes:,.2f} USD")
+        print(f"   Total bribes: {total_bribes:,.2f} USD")
     
     if 'bal_emited_votes' in final_df.columns:
         total_emissions = final_df['bal_emited_votes'].sum()
-        print(f"   Total de BAL emitido: {total_emissions:,.2f}")
+        print(f"   Total BAL emitted: {total_emissions:,.2f}")
     
-    # Salvar resultado
-    print(f"\n💾 Salvando resultado em {output_file}...")
+    print(f"\n💾 Saving result to {output_file}...")
     final_df.to_csv(output_file, index=False)
     
-    print(f"✅ Arquivo salvo com sucesso!")
+    print(f"✅ File saved successfully!")
     
-    # Mostrar amostra dos dados
-    print(f"\n📋 Amostra dos dados (primeiras 10 linhas):")
+    print(f"\n📋 Data sample (first 10 rows):")
     print(final_df.head(10).to_string(index=False))
     
-    # Mostrar informações sobre colunas vazias
-    print(f"\n📊 Informações sobre colunas:")
+    print(f"\n📊 Column information:")
     for col in FINAL_COLUMNS:
         if col in final_df.columns:
             non_null = final_df[col].notna().sum()
             null_count = len(final_df) - non_null
             pct = 100 * non_null / len(final_df) if len(final_df) > 0 else 0
-            print(f"   {col}: {non_null:,} valores ({pct:.1f}% preenchido)")
+            print(f"   {col}: {non_null:,} values ({pct:.1f}% filled)")
     
     return final_df
 
 
 def main():
-    """Função principal"""
+    """
+    Main function to execute the final dataset creation process.
+    
+    Returns:
+        DataFrame with the final dataset containing all columns specified in FINAL_COLUMNS
+        
+    Raises:
+        FileNotFoundError: If input files don't exist
+        ValueError: If required columns are missing
+    """
     try:
         result_df = create_final_dataset()
         print("\n" + "=" * 60)
-        print("✅ Processo concluído com sucesso!")
+        print("✅ Process completed successfully!")
         print("=" * 60)
         return result_df
     except Exception as e:
-        print(f"\n❌ Erro durante o processamento: {e}")
+        print(f"\n❌ Error during processing: {e}")
         import traceback
         traceback.print_exc()
         raise

@@ -2,9 +2,8 @@ name: Weekly Balancer Tokenomics Report
 
 on:
   schedule:
-    # Roda toda segunda-feira às 12:00 AM UTC (9:00 AM BRT)
     - cron: '0 12 * * 1'
-  workflow_dispatch:  # Permite execução manual
+  workflow_dispatch: 
 
 jobs:
   generate-and-send-report:
@@ -33,18 +32,15 @@ jobs:
         EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
         EMAIL_TO: ${{ secrets.EMAIL_TO }}
       run: |
-        cd script
         python main.py
     
     - name: Merge votes and bribes
       run: |
-        cd script
-        python merge_votes_bribes.py
+        python -m script.merge_votes_bribes
     
     - name: Create final dataset
       run: |
-        cd script
-        python create_final_dataset.py
+        python -m script.create_final_dataset
     
     - name: Send email with CSV
       env:
@@ -54,9 +50,8 @@ jobs:
         EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
         EMAIL_TO: ${{ secrets.EMAIL_TO }}
       run: |
-        cd script
-        python send_email.py
-      continue-on-error: true  # Continua mesmo se o e-mail falhar
+        python -m script.send_email
+      continue-on-error: true 
     
     - name: Upload CSV as artifact
       uses: actions/upload-artifact@v3

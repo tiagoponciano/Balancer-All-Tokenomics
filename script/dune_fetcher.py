@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Module to fetch data from Dune and generate CSVs
 """
@@ -44,18 +43,13 @@ def save_to_csv(data: list, output_path: Path):
     if not data:
         return 0
     
-    # Create output directory if it doesn't exist
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Write CSV
     with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
-        # If data are dictionaries (with keys)
         if isinstance(data[0], dict):
             fieldnames = list(data[0].keys())
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(data)
-        # If they are lists
         else:
             writer = csv.writer(csvfile)
             writer.writerows(data)

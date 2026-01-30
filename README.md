@@ -36,17 +36,17 @@ SMTP_PORT=587
 
 ### Run complete pipeline:
 ```bash
-python script/main.py
+python main.py
 ```
 
 ### Run individual steps:
 ```bash
-python script/main.py --dune-only          # Only Dune queries
-python script/main.py --hiddenhand-only    # Only HiddenHand
-python script/main.py --merge-bribes       # Merge Bribes
-python script/main.py --add-gauge          # Add gauge_address
-python script/main.py --merge-votes-bribes # Merge Votes + Bribes
-python script/main.py --create-final       # Create final dataset
+python main.py --dune-only          # Only Dune queries
+python main.py --hiddenhand-only    # Only HiddenHand
+python main.py --merge-bribes       # Merge Bribes
+python main.py --add-gauge          # Add gauge_address
+python main.py --merge-votes-bribes # Merge Votes + Bribes
+python main.py --create-final       # Create final dataset
 ```
 
 ## 📊 Generated Files
