@@ -230,14 +230,3 @@ To ensure compatibility between different address formats:
 - Check if `data/results.csv` exists and has columns: `address`, `added_date`, `removed_date`
 - Confirm that `data/veBAL.csv` has `project_contract_address` and `block_date`
 
-## 📄 License
-
-[Add license information here]
-
-## 🤝 Contributing
-
-[Add contribution information here]
-
-## 📧 Contact
-
-[Add contact information here]
