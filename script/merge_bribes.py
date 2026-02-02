@@ -1,217 +1,291 @@
-#!/usr/bin/env python3
-"""
-Script to combine bribe data from Dune (Bribes.csv) with HiddenHand data (hiddenhand_bribes.csv).
-
-The script:
-1. Reads both CSVs
-2. Matches by proposal_hash
-3. Identifies new pools from HiddenHand that are not in Bribes.csv
-4. Combines data keeping all information
-5. Saves as updated Bribes.csv
-"""
 import pandas as pd
+import os
 from pathlib import Path
-from typing import Optional
 
-PROJECT_ROOT = Path(__file__).parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
+DATA_DIR = "../data"
+BALANCER_CSV = os.path.join(DATA_DIR, "Bribes.csv")
+HIDDENHAND_CSV = os.path.join(DATA_DIR, "hiddenhand_bribes.csv")
+GAUGES_CSV = os.path.join(DATA_DIR, "FSN_data.csv")
+OUTPUT_CSV = os.path.join(DATA_DIR, "Bribes_enriched.csv")
 
-DUNE_BRIBES_FILE = DATA_DIR / "Bribes.csv"
-HIDDENHAND_BRIBES_FILE = DATA_DIR / "hiddenhand_bribes.csv"
-OUTPUT_FILE = DATA_DIR / "Bribes.csv"
+def normalize_proposal_hash(hash_str):
+    if pd.isna(hash_str) or hash_str == '':
+        return None
+    return str(hash_str).strip().lower()
 
 
-def merge_bribes_data(
-    dune_file: Path = DUNE_BRIBES_FILE,
-    hiddenhand_file: Path = HIDDENHAND_BRIBES_FILE,
-    output_file: Path = OUTPUT_FILE
-) -> pd.DataFrame:
-    """
-    Combines bribe data from Dune and HiddenHand by proposal_hash.
+def merge_bribes_data():
+    print("=" * 70)
+    print("Data Merge: Balancer_Bribes_Gauges + HiddenHand")
+    print("=" * 70)
     
-    Performs an outer merge to keep all records from both sources. If a proposal_hash
-    exists in both sources, columns are suffixed with '_hiddenhand' and '_dune'.
-    A 'source' column is added to indicate the origin of each record.
+    print("\n1. Loading CSVs...")
+    print(f"   - {BALANCER_CSV}")
+    balancer_df = pd.read_csv(BALANCER_CSV)
+    print(f"   ✓ Loaded: {len(balancer_df)} records")
     
-    Args:
-        dune_file: Path to Dune CSV file
-        hiddenhand_file: Path to HiddenHand CSV file
-        output_file: Path to output CSV file
-        
-    Returns:
-        DataFrame with combined data containing all records from both sources
-        
-    Raises:
-        FileNotFoundError: If hiddenhand_file doesn't exist
-        ValueError: If required columns are missing
-    """
-    print("=" * 60)
-    print("🔄 Merging Bribes Data")
-    print("=" * 60)
+    print(f"   - {HIDDENHAND_CSV}")
+    hiddenhand_df = pd.read_csv(HIDDENHAND_CSV)
+    print(f"   ✓ Loaded: {len(hiddenhand_df)} records")
     
-    if not hiddenhand_file.exists():
-        raise FileNotFoundError(f"File not found: {hiddenhand_file}")
+    print("\n2. Normalizing proposal_hash...")
+    balancer_df['proposal_hash_normalized'] = balancer_df['proposal_hash'].apply(normalize_proposal_hash)
+    hiddenhand_df['proposal_hash_normalized'] = hiddenhand_df['proposal_hash'].apply(normalize_proposal_hash)
     
-    print("\n📖 Reading files...")
+    hiddenhand_valid = hiddenhand_df[hiddenhand_df['proposal_hash_normalized'].notna()].copy()
+    print(f"   ✓ HiddenHand with valid proposal_hash: {len(hiddenhand_valid)} records")
     
-    hiddenhand_df = pd.read_csv(hiddenhand_file)
-    print(f"✅ HiddenHand CSV: {len(hiddenhand_df):,} rows")
-    print(f"   Columns: {list(hiddenhand_df.columns)}")
+    print("\n3. Creating lookup index...")
+    hiddenhand_dict = {}
+    for _, row in hiddenhand_valid.iterrows():
+        hash_key = row['proposal_hash_normalized']
+        if hash_key not in hiddenhand_dict:
+            hiddenhand_dict[hash_key] = []
+        hiddenhand_dict[hash_key].append(row)
     
-    if 'proposal_hash' not in hiddenhand_df.columns:
-        raise ValueError(
-            f"Column 'proposal_hash' not found in HiddenHand file. "
-            f"Available columns: {list(hiddenhand_df.columns)}"
-        )
+    print(f"   ✓ {len(hiddenhand_dict)} unique proposal_hashes in HiddenHand")
     
-    dune_df = None
-    if dune_file.exists():
-        dune_df = pd.read_csv(dune_file)
-        print(f"✅ Dune CSV: {len(dune_df):,} rows")
-        print(f"   Columns: {list(dune_df.columns)}")
-        
-        if 'proposal_hash' not in dune_df.columns:
-            print(f"⚠️  Column 'proposal_hash' not found in Dune file.")
-            print(f"   Trying to find similar column...")
-            
-            proposal_cols = [col for col in dune_df.columns if 'proposal' in col.lower() or 'hash' in col.lower()]
-            if proposal_cols:
-                print(f"   Columns found: {proposal_cols}")
-                dune_df = dune_df.rename(columns={proposal_cols[0]: 'proposal_hash'})
-                print(f"   Column '{proposal_cols[0]}' renamed to 'proposal_hash'")
+    print("\n4. Analyzing missing fields in Balancer_Bribes_Gauges...")
+    balancer_cols = set(balancer_df.columns)
+    hiddenhand_cols = set(hiddenhand_df.columns)
+    
+    fillable_fields = {
+        'pool_id': 'pool_id',
+        'pool_name': 'pool_name',
+        'derived_pool_address': 'derived_pool_address',
+        'week_timestamp': 'week_timestamp',
+        'week_date': 'week_date'
+    }
+    
+    missing_stats = {}
+    for hidden_col, balancer_col in fillable_fields.items():
+        if hidden_col in hiddenhand_cols:
+            if balancer_col not in balancer_cols:
+                missing_stats[balancer_col] = 'field_does_not_exist'
             else:
-                print(f"⚠️  Could not find proposal_hash column in Dune.")
-                print(f"   Continuing with HiddenHand data only...")
-                dune_df = None
+                missing_count = balancer_df[balancer_col].isna().sum() + (balancer_df[balancer_col] == '').sum()
+                if missing_count > 0:
+                    missing_stats[balancer_col] = missing_count
+    
+    if missing_stats:
+        print("   Fields with missing data:")
+        for field, count in missing_stats.items():
+            if count == 'field_does_not_exist':
+                print(f"     - {field}: field does not exist (will be added)")
+            else:
+                print(f"     - {field}: {count} missing values")
     else:
-        print(f"⚠️  Dune file not found: {dune_file}")
-        print(f"   Continuing with HiddenHand data only...")
+        print("   ✓ No missing fields detected")
     
-    print("\n🧹 Cleaning data...")
-    initial_hiddenhand = len(hiddenhand_df)
-    hiddenhand_df = hiddenhand_df[hiddenhand_df['proposal_hash'].notna() & (hiddenhand_df['proposal_hash'] != '')]
-    if len(hiddenhand_df) < initial_hiddenhand:
-        print(f"   Removed {initial_hiddenhand - len(hiddenhand_df):,} rows with empty proposal_hash from HiddenHand")
+    print("\n5. Preparing DataFrame for enrichment...")
+    new_columns = []
+    for hidden_col, balancer_col in fillable_fields.items():
+        if balancer_col not in balancer_df.columns:
+            balancer_df[balancer_col] = None
+            new_columns.append(balancer_col)
+            print(f"   + Added column: {balancer_col}")
     
-    if dune_df is not None:
-        initial_dune = len(dune_df)
-        dune_df = dune_df[dune_df['proposal_hash'].notna() & (dune_df['proposal_hash'] != '')]
-        if len(dune_df) < initial_dune:
-            print(f"   Removed {initial_dune - len(dune_df):,} rows with empty proposal_hash from Dune")
+    if 'pool_name' not in balancer_df.columns:
+        balancer_df['pool_name'] = None
+        new_columns.append('pool_name')
+        print(f"   + Added column: pool_name")
     
-    hiddenhand_df['proposal_hash'] = hiddenhand_df['proposal_hash'].astype(str).str.lower().str.strip()
-    if dune_df is not None:
-        dune_df['proposal_hash'] = dune_df['proposal_hash'].astype(str).str.lower().str.strip()
+    if 'derived_pool_address' not in balancer_df.columns:
+        balancer_df['derived_pool_address'] = None
+        new_columns.append('derived_pool_address')
     
-    print(f"\n📊 Initial statistics:")
-    print(f"   HiddenHand: {len(hiddenhand_df):,} unique records by proposal_hash")
-    unique_hiddenhand = hiddenhand_df['proposal_hash'].nunique()
-    print(f"   HiddenHand: {unique_hiddenhand:,} unique proposal_hashes")
+    if 'week_timestamp' not in balancer_df.columns:
+        balancer_df['week_timestamp'] = None
+        new_columns.append('week_timestamp')
+    if 'week_date' not in balancer_df.columns:
+        balancer_df['week_date'] = None
+        new_columns.append('week_date')
     
-    if dune_df is not None:
-        print(f"   Dune: {len(dune_df):,} unique records by proposal_hash")
-        unique_dune = dune_df['proposal_hash'].nunique()
-        print(f"   Dune: {unique_dune:,} unique proposal_hashes")
+    print("\n6. Filling missing data...")
+    filled_count = 0
+    matched_hashes = set()
     
-    print("\n🔗 Merging data...")
-    
-    if dune_df is not None:
-        merged_df = pd.merge(
-            hiddenhand_df,
-            dune_df,
-            on='proposal_hash',
-            how='outer',
-            suffixes=('_hiddenhand', '_dune'),
-            indicator=True
-        )
+    for idx, row in balancer_df.iterrows():
+        hash_key = row['proposal_hash_normalized']
         
-        merged_df['source'] = merged_df['_merge'].map({
-            'left_only': 'hiddenhand_only',
-            'right_only': 'dune_only',
-            'both': 'both'
-        })
-        merged_df = merged_df.drop(columns=['_merge'])
+        if hash_key and hash_key in hiddenhand_dict:
+            hiddenhand_row = hiddenhand_dict[hash_key][0]
+            matched_hashes.add(hash_key)
+            
+            updates = 0
+            
+            if pd.isna(row['pool_id']) or row['pool_id'] == '':
+                if pd.notna(hiddenhand_row.get('pool_id')):
+                    balancer_df.at[idx, 'pool_id'] = hiddenhand_row['pool_id']
+                    updates += 1
+            
+            if pd.notna(hiddenhand_row.get('pool_name')):
+                hiddenhand_pool_name = str(hiddenhand_row['pool_name']).strip()
+                balancer_df.at[idx, 'pool_title'] = hiddenhand_pool_name
+                updates += 1
+            
+            if 'pool_name' in balancer_df.columns:
+                if pd.notna(hiddenhand_row.get('pool_name')):
+                    balancer_df.at[idx, 'pool_name'] = hiddenhand_row['pool_name']
+                    updates += 1
+            
+            if pd.isna(row['derived_pool_address']) or row['derived_pool_address'] == '':
+                if pd.notna(hiddenhand_row.get('derived_pool_address')):
+                    balancer_df.at[idx, 'derived_pool_address'] = hiddenhand_row['derived_pool_address']
+                    updates += 1
+            
+            if pd.isna(row['week_timestamp']):
+                if pd.notna(hiddenhand_row.get('week_timestamp')):
+                    balancer_df.at[idx, 'week_timestamp'] = hiddenhand_row['week_timestamp']
+                    updates += 1
+            
+            if pd.isna(row['week_date']) or row['week_date'] == '':
+                if pd.notna(hiddenhand_row.get('week_date')):
+                    balancer_df.at[idx, 'week_date'] = hiddenhand_row['week_date']
+                    updates += 1
+            
+            if updates > 0:
+                filled_count += 1
+    
+    print(f"   ✓ {filled_count} records filled")
+    print(f"   ✓ {len(matched_hashes)} matching proposal_hashes found")
+    
+    balancer_df = balancer_df.drop(columns=['proposal_hash_normalized'], errors='ignore')
+    
+    print("\n7. Final statistics:")
+    print(f"   - Total records: {len(balancer_df)}")
+    print(f"   - Records with proposal_hash: {balancer_df['proposal_hash'].notna().sum()}")
+    
+    if 'pool_id' in balancer_df.columns:
+        print(f"   - Records with pool_id: {balancer_df['pool_id'].notna().sum()}")
+    if 'pool_title' in balancer_df.columns:
+        print(f"   - Records with pool_title: {balancer_df['pool_title'].notna().sum()}")
+    if 'pool_name' in balancer_df.columns:
+        print(f"   - Records with pool_name: {balancer_df['pool_name'].notna().sum()}")
+    if 'derived_pool_address' in balancer_df.columns:
+        print(f"   - Records with derived_pool_address: {balancer_df['derived_pool_address'].notna().sum()}")
+    
+    print(f"\n8. Saving enriched CSV...")
+    print(f"   - {OUTPUT_CSV}")
+    balancer_df.to_csv(OUTPUT_CSV, index=False)
+    print(f"   ✓ File saved successfully!")
+    
+    print("\n" + "=" * 70)
+    print("Merge completed!")
+    print("=" * 70)
+    print("\n" + "=" * 70)
+    print("Merge with Gauges: Filling gauge_address")
+    print("=" * 70)
+    
+    print(f"\n8. Loading {GAUGES_CSV}...")
+    gauges_df = pd.read_csv(GAUGES_CSV)
+    print(f"   ✓ Loaded: {len(gauges_df)} records")
+    
+    def normalize_address(addr):
+        if pd.isna(addr) or addr == '':
+            return None
+        return str(addr).strip().lower()
+    
+    print("\n9. Creating lookup index by pool_address + blockchain...")
+    gauges_dict = {}
+    
+    for _, row in gauges_df.iterrows():
+        pool_addr = normalize_address(row.get('pool_address'))
+        blockchain = str(row.get('blockchain', '')).strip().lower() if pd.notna(row.get('blockchain')) else None
+        gauge_addr = row.get('address')
         
-        print(f"\n📊 Merge result:")
-        print(f"   Total records after merge: {len(merged_df):,}")
-        print(f"   Proposal_hashes only in HiddenHand: {(merged_df['source'] == 'hiddenhand_only').sum():,}")
-        print(f"   Proposal_hashes only in Dune: {(merged_df['source'] == 'dune_only').sum():,}")
-        print(f"   Proposal_hashes in both: {(merged_df['source'] == 'both').sum():,}")
+        if pool_addr and blockchain and pd.notna(gauge_addr):
+            key = (pool_addr, blockchain)
+            if key not in gauges_dict:
+                gauges_dict[key] = []
+            gauges_dict[key].append({
+                'gauge_address': gauge_addr,
+                'child_gauge_address': row.get('child_gauge_address'),
+                'name': row.get('name'),
+                'status': row.get('status')
+            })
+    
+    print(f"   ✓ {len(gauges_dict)} unique keys (pool_address + blockchain)")
+    
+    print("\n10. Filling missing gauge_address...")
+    gauge_filled_count = 0
+    
+    def extract_base_address(address_str):
+        if not address_str:
+            return None
+        addr = str(address_str).strip().lower()
+        if addr.startswith('0x') and len(addr) >= 42:
+            return addr[:42]
+        return addr
+    
+    for idx, row in balancer_df.iterrows():
+        pool_id_raw = row.get('pool_id')
+        pool_id = normalize_address(pool_id_raw)
+        pool_id_base = extract_base_address(pool_id_raw) if pool_id else None
         
-        new_pools = merged_df[merged_df['source'] == 'hiddenhand_only']
-        if len(new_pools) > 0:
-            print(f"\n🆕 New pools found in HiddenHand: {len(new_pools):,}")
-            if 'derived_pool_address' in new_pools.columns:
-                unique_new_pools = new_pools['derived_pool_address'].nunique()
-                print(f"   Unique pools (by address): {unique_new_pools:,}")
-    else:
-        merged_df = hiddenhand_df.copy()
-        merged_df['source'] = 'hiddenhand_only'
-        print(f"   Using HiddenHand data only: {len(merged_df):,} records")
-    
-    initial_count = len(merged_df)
-    merged_df = merged_df.drop_duplicates(subset=['proposal_hash'], keep='first')
-    if len(merged_df) < initial_count:
-        print(f"\n🧹 Removed {initial_count - len(merged_df):,} duplicates")
-    
-    date_cols = [col for col in merged_df.columns if 'date' in col.lower() or 'timestamp' in col.lower() or 'week' in col.lower()]
-    if date_cols:
-        sort_col = date_cols[0]
-        merged_df = merged_df.sort_values(sort_col, ascending=False, na_position='last')
-        print(f"   Sorted by: {sort_col}")
-    else:
-        merged_df = merged_df.sort_values('proposal_hash')
-        print(f"   Sorted by: proposal_hash")
-    
-    print(f"\n💾 Saving result to {output_file}...")
-    merged_df.to_csv(output_file, index=False)
-    
-    print(f"✅ File saved successfully!")
-    print(f"   Total records: {len(merged_df):,}")
-    print(f"   Total columns: {len(merged_df.columns)}")
-    
-    print(f"\n📋 Data sample (first 10 rows):")
-    print(merged_df.head(10).to_string())
-    
-    print(f"\n📊 Final statistics:")
-    print(f"   Total records: {len(merged_df):,}")
-    print(f"   Unique proposal_hashes: {merged_df['proposal_hash'].nunique():,}")
-    
-    if 'derived_pool_address' in merged_df.columns:
-        print(f"   Unique pools (by address): {merged_df['derived_pool_address'].nunique():,}")
-    
-    if 'source' in merged_df.columns:
-        print(f"\n   Distribution by source:")
-        source_counts = merged_df['source'].value_counts()
-        for source, count in source_counts.items():
-            print(f"     {source}: {count:,} ({100 * count / len(merged_df):.2f}%)")
-    
-    return merged_df
-
-
-def main():
-    """
-    Main function to execute the bribe data merge process.
-    
-    Returns:
-        DataFrame with combined bribe data from Dune and HiddenHand
+        if not pool_id:
+            derived_addr = row.get('derived_pool_address')
+            pool_id = normalize_address(derived_addr)
+            pool_id_base = extract_base_address(derived_addr) if derived_addr else None
         
-    Raises:
-        FileNotFoundError: If hiddenhand_file doesn't exist
-        ValueError: If required columns are missing
-    """
-    try:
-        result_df = merge_bribes_data()
-        print("\n" + "=" * 60)
-        print("✅ Process completed successfully!")
-        print("=" * 60)
-        return result_df
-    except Exception as e:
-        print(f"\n❌ Error during processing: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+        blockchain = str(row.get('blockchain', '')).strip().lower() if pd.notna(row.get('blockchain')) else None
+        
+        if blockchain:
+            key = None
+            if pool_id:
+                key = (pool_id, blockchain)
+            
+            if (not key or key not in gauges_dict) and pool_id_base:
+                key = (pool_id_base, blockchain)
+            
+            if key and key in gauges_dict:
+                gauge_info = None
+                for g in gauges_dict[key]:
+                    if g.get('status') == 'active':
+                        gauge_info = g
+                        break
+                
+                if not gauge_info:
+                    gauge_info = gauges_dict[key][0]
+                
+                current_gauge = str(row.get('gauge_address', '')).strip().lower() if pd.notna(row.get('gauge_address')) else ''
+                new_gauge = str(gauge_info['gauge_address']).strip().lower()
+                
+                if current_gauge == '' or current_gauge != new_gauge:
+                    balancer_df.at[idx, 'gauge_address'] = gauge_info['gauge_address']
+                    gauge_filled_count += 1
+    
+    print(f"   ✓ {gauge_filled_count} gauge_address filled")
+    
+    print("\n11. Updated final statistics:")
+    print(f"   - Total records: {len(balancer_df)}")
+    print(f"   - Records with proposal_hash: {balancer_df['proposal_hash'].notna().sum()}")
+    
+    if 'pool_id' in balancer_df.columns:
+        print(f"   - Records with pool_id: {balancer_df['pool_id'].notna().sum()}")
+    if 'pool_title' in balancer_df.columns:
+        print(f"   - Records with pool_title: {balancer_df['pool_title'].notna().sum()}")
+    if 'pool_name' in balancer_df.columns:
+        print(f"   - Records with pool_name: {balancer_df['pool_name'].notna().sum()}")
+    if 'gauge_address' in balancer_df.columns:
+        print(f"   - Records with gauge_address: {balancer_df['gauge_address'].notna().sum()}")
+    if 'derived_pool_address' in balancer_df.columns:
+        print(f"   - Records with derived_pool_address: {balancer_df['derived_pool_address'].notna().sum()}")
+    
+    print(f"\n12. Saving updated enriched CSV...")
+    print(f"   - {OUTPUT_CSV}")
+    balancer_df.to_csv(OUTPUT_CSV, index=False)
+    print(f"   ✓ File saved successfully!")
+    
+    print("\n" + "=" * 70)
+    print("Merge completed!")
+    print("=" * 70)
+    print(f"\nGenerated file: {OUTPUT_CSV}")
+    print(f"Total records: {len(balancer_df)}")
+    print(f"Records filled (HiddenHand): {filled_count}")
+    print(f"Matching proposal hashes: {len(matched_hashes)}")
+    print(f"Gauge addresses filled: {gauge_filled_count}")
 
 
 if __name__ == "__main__":
-    main()
+    merge_bribes_data()

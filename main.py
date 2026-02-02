@@ -172,7 +172,7 @@ def main():
     
     run_dune_queries()
     run_hiddenhand()
-    run_merge_bribes()
+    # run_merge_bribes()  # DISABLED: Keeping Dune and HiddenHand data separated for now
     run_add_gauge_address()
     run_merge_votes_bribes()
     run_classify_core_pools()
