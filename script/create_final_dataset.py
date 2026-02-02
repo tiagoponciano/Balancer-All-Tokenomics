@@ -122,10 +122,29 @@ def create_final_dataset(
     
     print(f"✅ veBAL after cleaning: {len(vebal_df):,} rows")
     
-    print("\n🔗 Merging Core Pools classification with veBAL...")
+    # Define timezone removal function FIRST
+    def remove_timezone(series):
+        """Removes timezone from a datetime series if it exists."""
+        try:
+            if hasattr(series.dt, 'tz') and series.dt.tz is not None:
+                return series.dt.tz_localize(None)
+        except (AttributeError, TypeError):
+            pass
+        return series
     
-    vebal_df['block_date'] = pd.to_datetime(vebal_df['block_date'], errors='coerce')
+    print("\n🔗 Converting and normalizing dates...")
+    
+    # Convert veBAL dates and remove timezone
+    vebal_df['block_date'] = pd.to_datetime(vebal_df['block_date'], errors='coerce', utc=True)
+    vebal_df['block_date'] = remove_timezone(vebal_df['block_date'])
+    
+    # Convert core pools dates and remove timezone
     core_pools_df['day'] = pd.to_datetime(core_pools_df['day'], errors='coerce')
+    core_pools_df['day'] = remove_timezone(core_pools_df['day'])
+    
+    print("   ✅ Dates converted to timezone-naive datetime")
+    
+    print("\n🔗 Merging Core Pools classification with veBAL...")
     
     vebal_df['address_42'] = vebal_df['project_contract_address'].astype(str).str[:42].str.lower().str.strip()
     core_pools_df['address_42'] = core_pools_df['address'].astype(str).str[:42].str.lower().str.strip()
@@ -148,12 +167,18 @@ def create_final_dataset(
     print(f"   Core pools: {core_matched:,} ({100 * core_matched / len(vebal_df):.2f}%)")
     print(f"   Non-core pools: {core_not_matched:,} ({100 * core_not_matched / len(vebal_df):.2f}%)")
     
+    # Convert votes_bribes dates and ensure timezone-naive
     if 'day' in votes_bribes_df.columns:
-        votes_bribes_df['day'] = pd.to_datetime(votes_bribes_df['day'], errors='coerce')
+        # Force UTC conversion then remove timezone to match veBAL format
+        votes_bribes_df['day'] = pd.to_datetime(votes_bribes_df['day'], errors='coerce', utc=True)
+        votes_bribes_df['day'] = remove_timezone(votes_bribes_df['day'])
         date_col_bribes = 'day'
     else:
-        votes_bribes_df['block_date'] = pd.to_datetime(votes_bribes_df['block_date'], errors='coerce')
+        votes_bribes_df['block_date'] = pd.to_datetime(votes_bribes_df['block_date'], errors='coerce', utc=True)
+        votes_bribes_df['block_date'] = remove_timezone(votes_bribes_df['block_date'])
         date_col_bribes = 'block_date'
+    
+    print("   ✅ All dates standardized (timezone-naive datetime64[ns])")
     
     vebal_df['gauge_address'] = vebal_df['gauge_address'].astype(str).str.lower().str.strip()
     vebal_df['blockchain'] = vebal_df['blockchain'].astype(str).str.lower().str.strip()
@@ -176,6 +201,17 @@ def create_final_dataset(
     
     if date_col_bribes == 'day':
         votes_bribes_df = votes_bribes_df.rename(columns={'day': 'block_date'})
+    
+    # CRITICAL FIX: Remove overlapping columns from veBAL that will be filled from votes_bribes
+    print("\n🧹 Removing empty columns from veBAL that will be filled from votes_bribes...")
+    cols_to_remove = []
+    for col in ['bal_emited_votes', 'votes_received', 'core_non_core']:
+        if col in vebal_df.columns:
+            cols_to_remove.append(col)
+            print(f"   Removing: {col} (will be filled from votes_bribes or classification)")
+    
+    if cols_to_remove:
+        vebal_df = vebal_df.drop(columns=cols_to_remove)
     
     print("\n🔗 Merging data...")
     print("   Match keys: gauge_address, block_date, blockchain")

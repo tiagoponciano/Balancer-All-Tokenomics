@@ -121,6 +121,16 @@ def run_classify_core_pools():
     classify_main()
 
 
+def run_enrich_bribes_with_fsn():
+    """Enriches Bribes_enriched.csv with missing blockchain and gauge_address from FSN_data.csv"""
+    print("\n" + "=" * 60)
+    print("Starting Bribes enrichment with FSN data")
+    print("=" * 60 + "\n")
+    
+    from enrich_bribes_with_fsn import main as enrich_main
+    enrich_main()
+
+
 def run_create_final_dataset():
     """Creates final dataset combining veBAL.csv and votes_bribes_merged.csv"""
     print("\n" + "=" * 60)
@@ -153,26 +163,31 @@ def main():
         elif sys.argv[1] == "--classify-core-pools":
             run_classify_core_pools()
             return
+        elif sys.argv[1] == "--enrich-bribes-fsn":
+            run_enrich_bribes_with_fsn()
+            return
         elif sys.argv[1] == "--create-final":
             run_create_final_dataset()
             return
         elif sys.argv[1] == "--help" or sys.argv[1] == "-h":
             print("Usage: python main.py [options]")
             print("\nOptions:")
-            print("  (no options)          - Runs all sources (Dune + HiddenHand + Merge + Gauge + Classify + Final)")
-            print("  --dune-only           - Runs only Dune queries")
-            print("  --hiddenhand-only     - Runs only HiddenHand collection")
-            print("  --merge-bribes        - Runs only Bribes data merge")
-            print("  --add-gauge           - Adds gauge_address to veBAL.csv")
-            print("  --merge-votes-bribes  - Merges Votes_Emissions and Bribes")
-            print("  --classify-core-pools - Classifies pools as core or non-core")
-            print("  --create-final        - Creates final dataset (Balancer-All-Tokenomics.csv)")
-            print("  --help, -h            - Shows this message")
+            print("  (no options)            - Runs all sources (Dune + HiddenHand + Gauge + FSN + Classify + Final)")
+            print("  --dune-only             - Runs only Dune queries")
+            print("  --hiddenhand-only       - Runs only HiddenHand collection")
+            print("  --merge-bribes          - Runs only Bribes data merge (DISABLED)")
+            print("  --add-gauge             - Adds gauge_address to veBAL.csv")
+            print("  --merge-votes-bribes    - Merges Votes_Emissions and Bribes")
+            print("  --classify-core-pools   - Classifies pools as core or non-core")
+            print("  --enrich-bribes-fsn     - Enriches Bribes with FSN data (blockchain + gauge)")
+            print("  --create-final          - Creates final dataset (Balancer-All-Tokenomics.csv)")
+            print("  --help, -h              - Shows this message")
             return
     
     run_dune_queries()
     run_hiddenhand()
     # run_merge_bribes()  # DISABLED: Keeping Dune and HiddenHand data separated for now
+    run_enrich_bribes_with_fsn()  # Enrich Bribes_enriched with FSN data
     run_add_gauge_address()
     run_merge_votes_bribes()
     run_classify_core_pools()

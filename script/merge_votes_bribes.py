@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to merge Votes_Emissions.csv and Bribes.csv
+Script to merge Votes_Emissions.csv and Bribes_enriched.csv
 
 Match keys:
 - gauge_address
@@ -11,6 +11,11 @@ Renames:
 - amount_usdc (Bribes) → bribe_amount_usd
 - daily_emissions (Votes_Emissions) → bal_emited_votes
 - total_votes (Votes_Emissions) → votes_received
+
+IMPORTANT: Uses Bribes_enriched.csv (not Bribes.csv) which has:
+- Metadata from HiddenHand
+- gauge_address filled from FSN_data
+- blockchain filled from FSN_data
 """
 import pandas as pd
 from pathlib import Path
@@ -20,7 +25,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
 VOTES_EMISSIONS_FILE = DATA_DIR / "Votes_Emissions.csv"
-BRIBES_FILE = DATA_DIR / "Bribes.csv"
+BRIBES_FILE = DATA_DIR / "Bribes_enriched.csv"
 OUTPUT_FILE = DATA_DIR / "votes_bribes_merged.csv"
 
 
@@ -30,7 +35,13 @@ def merge_votes_bribes(
     output_file: Path = OUTPUT_FILE
 ) -> pd.DataFrame:
     """
-    Merges Votes_Emissions.csv and Bribes.csv.
+    Merges Votes_Emissions.csv and Bribes_enriched.csv.
+    
+    Uses Bribes_enriched.csv (NOT Bribes.csv) which contains:
+    - Original Dune bribe data
+    - HiddenHand metadata
+    - gauge_address filled from FSN_data
+    - blockchain filled from FSN_data
     
     Performs an outer merge on gauge_address, day, and blockchain. If multiple
     bribes exist for the same (gauge_address, day, blockchain) combination,
@@ -43,7 +54,7 @@ def merge_votes_bribes(
     
     Args:
         votes_file: Path to Votes_Emissions CSV file
-        bribes_file: Path to Bribes CSV file
+        bribes_file: Path to Bribes_enriched CSV file
         output_file: Path to output CSV file
         
     Returns:
@@ -69,7 +80,7 @@ def merge_votes_bribes(
     
     print(f"✅ Votes_Emissions CSV: {len(votes_df):,} rows")
     print(f"   Columns: {list(votes_df.columns)}")
-    print(f"✅ Bribes CSV: {len(bribes_df):,} rows")
+    print(f"✅ Bribes_enriched CSV: {len(bribes_df):,} rows")
     print(f"   Columns: {list(bribes_df.columns)}")
     
     required_votes_cols = ['gauge_address', 'day', 'blockchain']
@@ -87,6 +98,21 @@ def merge_votes_bribes(
     
     votes_df['day'] = pd.to_datetime(votes_df['day'], errors='coerce')
     bribes_df['day'] = pd.to_datetime(bribes_df['day'], errors='coerce')
+    
+    # Remove timezone to ensure compatibility
+    def remove_timezone(series):
+        """Removes timezone from a datetime series if it exists."""
+        try:
+            if hasattr(series.dt, 'tz') and series.dt.tz is not None:
+                return series.dt.tz_localize(None)
+        except (AttributeError, TypeError):
+            pass
+        return series
+    
+    votes_df['day'] = remove_timezone(votes_df['day'])
+    bribes_df['day'] = remove_timezone(bribes_df['day'])
+    
+    print("   ✅ Dates standardized (timezone removed)")
     
     votes_df['gauge_address'] = votes_df['gauge_address'].astype(str).str.lower().str.strip()
     votes_df['blockchain'] = votes_df['blockchain'].astype(str).str.lower().str.strip()
