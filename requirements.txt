@@ -2,3 +2,11 @@ dune-client
 python-dotenv
 requests
 pandas
+streamlit
+pandas
+plotly
+numpy
+python-dotenv
+supabase
+dune-client
+requests
