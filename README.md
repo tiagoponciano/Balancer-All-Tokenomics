@@ -5,8 +5,9 @@ Automated system for collecting, processing, and analyzing tokenomics data from 
 ## 🚀 Features
 
 - ✅ **Automatic data collection from Dune Analytics** (veBAL, Bribes, Votes & Emissions)
-- ✅ **Data collection from HiddenHand Finance** (additional Bribes)
+- ✅ **Metadata collection from HiddenHand Finance** (pool names, derived addresses)
 - ✅ **Intelligent Core/Non-Core pool classification** based on historical time intervals
+- ✅ **Bribe enrichment** with additional metadata from HiddenHand
 - ✅ **Merging and consolidation of multiple data sources**
 - ✅ **Generation of a consolidated final dataset** with all metrics
 
@@ -48,9 +49,9 @@ python main.py
 ```
 
 This will execute all steps in the correct order:
-1. Data collection from Dune Analytics
-2. Data collection from HiddenHand Finance
-3. Bribes merge (Dune + HiddenHand)
+1. Data collection from Dune Analytics (source of truth for bribes)
+2. Metadata collection from HiddenHand Finance (pool names, addresses)
+3. Bribe enrichment: Add HiddenHand metadata to Dune bribes (LEFT JOIN)
 4. Adding gauge_address to veBAL
 5. Votes & Bribes merge
 6. Core Pools Classification
@@ -94,8 +95,10 @@ python main.py --help
 - **Query 6608301**: `Votes_Emissions.csv` - Votes and BAL emissions data
 
 #### HiddenHand Finance
-- Collection of additional bribe data via API
-- Merge with Dune data for a complete dataset
+- Collection of **metadata only** via API (pool_name, pool_id, derived_pool_address)
+- **IMPORTANT**: HiddenHand does NOT provide bribe amounts (amount_usdc)
+- **Role**: Enrichment source to add pool metadata to Dune bribes
+- Merge strategy: LEFT JOIN (preserves ALL Dune bribes, adds metadata where available)
 
 ### 2. Processing and Enrichment
 
@@ -207,7 +210,7 @@ To ensure compatibility between different address formats:
 | `main.py` | Main script - orchestrates the entire pipeline |
 | `script/dune_fetcher.py` | Data collection from Dune Analytics |
 | `script/fetch_hiddenhand.py` | Data collection from HiddenHand Finance |
-| `script/merge_bribes.py` | Bribes Merge (Dune + HiddenHand) |
+| `script/merge_bribes.py` | Enriches Dune bribes with HiddenHand metadata (LEFT JOIN) |
 | `script/add_gauge_address.py` | Adds gauge_address to veBAL |
 | `script/merge_votes_bribes.py` | Votes & Bribes Merge |
 | `script/classify_core_pools.py` | Core/Non-Core pools classification |
@@ -227,14 +230,3 @@ To ensure compatibility between different address formats:
 - Check if `data/results.csv` exists and has columns: `address`, `added_date`, `removed_date`
 - Confirm that `data/veBAL.csv` has `project_contract_address` and `block_date`
 
-## 📄 License
-
-[Add license information here]
-
-## 🤝 Contributing
-
-[Add contribution information here]
-
-## 📧 Contact
-
-[Add contact information here]
