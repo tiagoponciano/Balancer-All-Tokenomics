@@ -98,12 +98,17 @@ def add_gauge_address(
     
     print("\n🔍 Creating match between datasets...")
     
+    # CRITICAL FIX: Truncate BOTH FSN poolId AND veBAL project_contract_address to first 42 chars
+    # Keep ALL pools, even if shorter than 42 chars (just take what's available)
     fsn_df['poolId_42'] = fsn_df['poolId'].str[:42]
-    fsn_df = fsn_df[fsn_df['poolId_42'].str.len() >= 42]
+    
+    # Also truncate veBAL project_contract_address to first 42 chars for matching
+    vebal_df['project_contract_address_42'] = vebal_df['project_contract_address'].str[:42]
     
     print(f"   FSN_data after processing: {len(fsn_df):,} rows")
-    print(f"   Unique pools in FSN_data: {fsn_df['poolId_42'].nunique():,}")
+    print(f"   Unique pools in FSN_data (42 chars): {fsn_df['poolId_42'].nunique():,}")
     print(f"   Unique gauge addresses: {fsn_df['id'].nunique():,}")
+    print(f"   Unique pools in veBAL (42 chars): {vebal_df['project_contract_address_42'].nunique():,}")
     
     duplicates = fsn_df.groupby('poolId_42')['id'].nunique()
     duplicates = duplicates[duplicates > 1]
@@ -120,7 +125,11 @@ def add_gauge_address(
     
     print("\n🔄 Applying match to veBAL...")
     
-    vebal_df['gauge_address'] = vebal_df['project_contract_address'].map(gauge_mapping)
+    # Match using truncated 42-char addresses
+    vebal_df['gauge_address'] = vebal_df['project_contract_address_42'].map(gauge_mapping)
+    
+    # Clean up temporary column
+    vebal_df = vebal_df.drop(columns=['project_contract_address_42'])
     
     matched_count = vebal_df['gauge_address'].notna().sum()
     unmatched_count = len(vebal_df) - matched_count
