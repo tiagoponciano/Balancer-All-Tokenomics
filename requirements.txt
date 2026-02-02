@@ -1,12 +1,10 @@
-dune-client
-python-dotenv
-requests
+streamlit==1.19.0
+altair==4.2.2
+
 pandas
-streamlit
-pandas
-plotly
 numpy
+plotly
+requests
 python-dotenv
 supabase
 dune-client
-requests
