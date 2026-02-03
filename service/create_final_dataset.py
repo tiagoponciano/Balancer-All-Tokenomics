@@ -27,6 +27,7 @@ FINAL_COLUMNS = [
     'block_date',
     'project_contract_address',
     'gauge_address',
+    'has_gauge',
     'pool_symbol',
     'pool_type',
     'swap_amount_usd',
@@ -266,6 +267,17 @@ def create_final_dataset(
             else:
                 final_df[col] = None
                 print(f"   ⚠️  Column not found: is_core - {col} created as empty")
+        elif col == 'has_gauge':
+            if 'gauge_address' in merged_df.columns:
+                final_df[col] = (
+                    merged_df['gauge_address'].notna() & 
+                    (merged_df['gauge_address'] != '') &
+                    (merged_df['gauge_address'].astype(str).str.lower() != 'nan')
+                )
+                print(f"   ✅ Created: {col} from gauge_address column")
+            else:
+                final_df[col] = False
+                print(f"   ⚠️  gauge_address not found - {col} set to False")
         else:
             final_df[col] = None
             print(f"   ⚠️  Column not found: {col} - created as empty")

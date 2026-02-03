@@ -610,6 +610,108 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
+        /* --- BOTÕES DE GAUGE (Gauge, No Gauge, Select All) --- */
+        button[id^="btn_gauge_"],
+        button[id^="btn_no_gauge_"],
+        button[id^="btn_all_gauge_"],
+        [id^="btn_gauge_"],
+        [id^="btn_no_gauge_"],
+        [id^="btn_all_gauge_"] {
+            width: 110px !important;
+            min-width: 110px !important;
+            background: linear-gradient(135deg, rgba(103, 162, 225, 0.18) 0%, rgba(103, 162, 225, 0.08) 100%) !important;
+            border: 1.5px solid rgba(103, 162, 225, 0.45) !important;
+            box-shadow: 0 3px 12px rgba(103, 162, 225, 0.15) !important;
+            border-radius: 12px !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            position: relative !important;
+            overflow: hidden !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer !important;
+            animation: sidebarSaltinho 0.35s ease-out both !important;
+        }
+        
+        button[id^="btn_gauge_"]::before,
+        button[id^="btn_no_gauge_"]::before,
+        button[id^="btn_all_gauge_"]::before,
+        [id^="btn_gauge_"]::before,
+        [id^="btn_no_gauge_"]::before,
+        [id^="btn_all_gauge_"]::before {
+            content: '' !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: -100% !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent) !important;
+            transition: left 0.6s ease !important;
+            pointer-events: none !important;
+            z-index: 1 !important;
+        }
+        
+        button[id^="btn_gauge_"]::after,
+        button[id^="btn_no_gauge_"]::after,
+        button[id^="btn_all_gauge_"]::after,
+        [id^="btn_gauge_"]::after,
+        [id^="btn_no_gauge_"]::after,
+        [id^="btn_all_gauge_"]::after {
+            content: '' !important;
+            position: absolute !important;
+            inset: 0 !important;
+            border-radius: 12px !important;
+            padding: 1.5px !important;
+            background: linear-gradient(135deg, rgba(103, 162, 225, 0.6), rgba(103, 162, 225, 0.2)) !important;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0) !important;
+            -webkit-mask-composite: xor !important;
+            mask-composite: exclude !important;
+            opacity: 0 !important;
+            transition: opacity 0.3s !important;
+            pointer-events: none !important;
+            z-index: 0 !important;
+        }
+        
+        button[id^="btn_gauge_"]:hover,
+        button[id^="btn_no_gauge_"]:hover,
+        button[id^="btn_all_gauge_"]:hover,
+        [id^="btn_gauge_"]:hover,
+        [id^="btn_no_gauge_"]:hover,
+        [id^="btn_all_gauge_"]:hover {
+            background: linear-gradient(135deg, rgba(103, 162, 225, 0.28) 0%, rgba(103, 162, 225, 0.15) 100%) !important;
+            border-color: rgba(103, 162, 225, 0.7) !important;
+            transform: translateY(-3px) scale(1.02) !important;
+            box-shadow: 0 6px 20px rgba(103, 162, 225, 0.3) !important;
+        }
+        
+        button[id^="btn_gauge_"]:hover::before,
+        button[id^="btn_no_gauge_"]:hover::before,
+        button[id^="btn_all_gauge_"]:hover::before,
+        [id^="btn_gauge_"]:hover::before,
+        [id^="btn_no_gauge_"]:hover::before,
+        [id^="btn_all_gauge_"]:hover::before {
+            left: 100% !important;
+        }
+        
+        button[id^="btn_gauge_"]:hover::after,
+        button[id^="btn_no_gauge_"]:hover::after,
+        button[id^="btn_all_gauge_"]:hover::after,
+        [id^="btn_gauge_"]:hover::after,
+        [id^="btn_no_gauge_"]:hover::after,
+        [id^="btn_all_gauge_"]:hover::after {
+            opacity: 1 !important;
+        }
+        
+        button[id^="btn_gauge_"]:active,
+        button[id^="btn_no_gauge_"]:active,
+        button[id^="btn_all_gauge_"]:active,
+        [id^="btn_gauge_"]:active,
+        [id^="btn_no_gauge_"]:active,
+        [id^="btn_all_gauge_"]:active {
+            transform: translateY(-1px) scale(1.01) !important;
+            box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
+        }
+        
         /* --- BOTÃO SHOW PERFORMANCE BY POOL --- */
         /* Seletor usando atributo data customizado (mais confiável) */
         button[data-button-type="performance"],
@@ -1600,7 +1702,7 @@ def show_gauge_filter(session_key='gauge_filter', on_change_callback=None):
     """
     # Initialize session state
     if session_key not in st.session_state:
-        st.session_state[session_key] = 'gauge'
+        st.session_state[session_key] = 'all'
     
     # Create filter container in sidebar
     st.sidebar.markdown("---")
@@ -1621,6 +1723,14 @@ def show_gauge_filter(session_key='gauge_filter', on_change_callback=None):
             if on_change_callback:
                 on_change_callback()
             st.rerun()
+    
+    # Show "Select All" button only when a filter is active
+    if st.session_state[session_key] in ['gauge', 'no_gauge']:
+        if st.sidebar.button("Select All", key=f"btn_all_gauge_{session_key}", use_container_width=True):
+            st.session_state[session_key] = 'all'
+            if on_change_callback:
+                on_change_callback()
+            st.rerun()
 
 
 def apply_gauge_filter(df, session_key='gauge_filter'):
@@ -1638,11 +1748,13 @@ def apply_gauge_filter(df, session_key='gauge_filter'):
         return df
     
     if session_key not in st.session_state:
-        st.session_state[session_key] = 'gauge'
+        st.session_state[session_key] = 'all'
     
     gauge_filter = st.session_state[session_key]
     
-    if gauge_filter == 'gauge':
+    if gauge_filter == 'all':
+        return df
+    elif gauge_filter == 'gauge':
         # Filter pools that have gauge_address (not null, not empty, not 'nan')
         return df[
             df['gauge_address'].notna() & 
@@ -1713,70 +1825,82 @@ QUARTER_OPTIONS = [
 
 def show_date_filter_sidebar(df, key_prefix="date_filter"):
     """
-    Date filter in sidebar: Year (multi-select) and Quarter (multi-select).
-    Returns (years_list, quarter_months): list of year ints or None, list of months or None.
+    Date filter in sidebar using streamlit-dynamic-filters with quarter descriptions.
+    Returns the filtered dataframe.
     """
     if df is None or df.empty or "block_date" not in df.columns:
-        return None, None
-    dt = pd.to_datetime(df["block_date"], errors="coerce")
-    years = sorted(dt.dt.year.dropna().astype(int).unique().tolist())
-    if not years:
-        return None, None
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📅 Date Filter")
-
-    # Multi-select for years
-    selected_years = st.sidebar.multiselect(
-        "Year (select one or more)",
-        options=[str(y) for y in years],
-        default=[str(y) for y in years],  # Default to all years selected
-        key=f"{key_prefix}_year_multi",
-    )
-
-    # If no years selected, return None (show all)
-    if not selected_years:
-        return None, None
+        return df
     
-    years_list = [int(y) for y in selected_years]
-    
-    # Multi-select for quarters (excluding "All" option)
-    quarter_options_filtered = [q for q in QUARTER_OPTIONS if q[0] != "All"]
-    quarter_labels = [q[0] for q in quarter_options_filtered]
-    
-    selected_quarters = st.sidebar.multiselect(
-        "Quarter (select one or more)",
-        options=quarter_labels,
-        default=quarter_labels,  # Default to all quarters selected
-        key=f"{key_prefix}_quarter_multi",
-    )
+    try:
+        from streamlit_dynamic_filters import DynamicFilters
+        
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 📅 Date Filter")
+        
+        # Prepare dataframe for filtering - add year and quarter columns with descriptions
+        df_filter = df.copy()
+        dt = pd.to_datetime(df_filter["block_date"], errors="coerce")
+        
+        # Filter out rows with invalid dates
+        valid_dates_mask = dt.notna()
+        df_filter = df_filter[valid_dates_mask].copy()
+        dt = dt[valid_dates_mask]
+        
+        # Add Year column
+        df_filter['Year'] = dt.dt.year.fillna(0).astype(int).astype(str)
+        
+        # Map quarter to descriptive labels
+        quarter_map = {
+            1: '1Q (Jan-Mar)',
+            2: '2Q (Apr-Jun)',
+            3: '3Q (Jul-Sep)',
+            4: '4Q (Oct-Dec)'
+        }
+        df_filter['Quarter'] = dt.dt.quarter.fillna(0).astype(int).map(quarter_map).fillna('Unknown')
+        
+        # Remove any rows with 'Unknown' quarter
+        df_filter = df_filter[df_filter['Quarter'] != 'Unknown'].copy()
+        
+        if df_filter.empty:
+            st.sidebar.warning("⚠️ No valid dates found in the data")
+            return df
+        
+        # Create dynamic filters - use unique column names to avoid conflicts
+        dynamic_filters = DynamicFilters(
+            df_filter, 
+            filters=['Year', 'Quarter']
+        )
+        
+        # Display filters in sidebar
+        dynamic_filters.display_filters(location='sidebar')
+        
+        # Get filtered dataframe and remove temporary columns
+        filtered_df = dynamic_filters.filter_df()
+        filtered_df = filtered_df.drop(columns=['Year', 'Quarter'], errors='ignore')
+        
+        return filtered_df
+        
+    except ImportError:
+        st.sidebar.warning("⚠️ streamlit-dynamic-filters not installed. Install with: pip install streamlit-dynamic-filters")
+        return df
+    except Exception as e:
+        st.sidebar.error(f"⚠️ Error with dynamic filters: {str(e)}")
+        import traceback
+        st.sidebar.code(traceback.format_exc())
+        return df
 
-    # Aggregate months from all selected quarters
-    quarter_months = []
-    if selected_quarters:
-        for selected in selected_quarters:
-            for label, months in quarter_options_filtered:
-                if label == selected and months is not None:
-                    quarter_months.extend(months)
-        quarter_months = sorted(list(set(quarter_months))) if quarter_months else None
-    else:
-        # If no quarters selected, show all quarters
-        quarter_months = None
 
-    return years_list, quarter_months
-
-
-def apply_date_filter(df, years_list, quarter_months):
+def apply_date_filter(df, year, quarter_months):
     """
-    Filter df by years and quarter (block_date).
-    years_list: list of ints or None (all). quarter_months: list [1,2,3] or None (all).
+    Filter df by year and quarter (block_date).
+    year: int or None (all). quarter_months: list [1,2,3] or None (all).
     """
-    if df is None or df.empty or (years_list is None and quarter_months is None):
+    if df is None or df.empty or (year is None and quarter_months is None):
         return df
     df = df.copy()
     dt = pd.to_datetime(df["block_date"], errors="coerce")
-    if years_list is not None and len(years_list) > 0:
-        df = df.loc[dt.dt.year.isin(years_list)]
+    if year is not None:
+        df = df.loc[dt.dt.year == year]
     if quarter_months is not None:
         df = df.loc[dt.dt.month.isin(quarter_months)]
     return df
@@ -1908,6 +2032,17 @@ def _process_main_data(df):
     inc = df['direct_incentives']
     df['dao_profit_usd'] = rev - inc
     df['emissions_roi'] = np.where(inc > 0, rev / inc, 0.0)
+    
+    # Add has_gauge column (True if gauge_address exists and is not empty/nan)
+    if 'gauge_address' in df.columns:
+        df['has_gauge'] = (
+            df['gauge_address'].notna() & 
+            (df['gauge_address'] != '') &
+            (df['gauge_address'].astype(str).str.lower() != 'nan')
+        )
+    else:
+        df['has_gauge'] = False
+    
     return classify_pools(df)
 
 
@@ -1943,6 +2078,17 @@ def _process_merged_data(df):
     inc = df['direct_incentives']
     df['dao_profit_usd'] = rev - inc
     df['emissions_roi'] = np.where(inc > 0, rev / inc, 0.0)
+    
+    # Add has_gauge column (True if gauge_address exists and is not empty/nan)
+    if 'gauge_address' in df.columns:
+        df['has_gauge'] = (
+            df['gauge_address'].notna() & 
+            (df['gauge_address'] != '') &
+            (df['gauge_address'].astype(str).str.lower() != 'nan')
+        )
+    else:
+        df['has_gauge'] = False
+    
     df = classify_pools(df)
     return df
 

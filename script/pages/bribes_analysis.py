@@ -59,7 +59,7 @@ if 'pool_filter_mode_bribes' not in st.session_state:
 if 'version_filter_bribes' not in st.session_state:
     st.session_state.version_filter_bribes = 'all'  # Default: show all versions
 if 'gauge_filter_bribes' not in st.session_state:
-    st.session_state.gauge_filter_bribes = 'gauge'  # Default: show pools with gauge
+    st.session_state.gauge_filter_bribes = 'all'  # Default: show all pools
 if 'show_performance_by_pool' not in st.session_state:
     st.session_state.show_performance_by_pool = False
 if 'performance_page' not in st.session_state:
@@ -117,6 +117,14 @@ function applyButtonIds() {
                 } else if (text === 'All Versions' || textLower === 'all versions') {
                     if (!button.id || !button.id.startsWith('btn_all_versions_')) {
                         button.id = 'btn_all_versions_version_filter';
+                    }
+                } else if (text === 'Gauge' || textLower === 'gauge') {
+                    if (!button.id || !button.id.startsWith('btn_gauge_')) {
+                        button.id = 'btn_gauge_filter';
+                    }
+                } else if (text === 'No Gauge' || textLower === 'no gauge') {
+                    if (!button.id || !button.id.startsWith('btn_no_gauge_')) {
+                        button.id = 'btn_no_gauge_filter';
                     }
                 } else if (text === 'Top 20' || textLower === 'top 20') {
                     if (!button.id || !button.id.startsWith('btn_top20')) {
@@ -229,10 +237,19 @@ utils.show_gauge_filter('gauge_filter_bribes', on_change_callback=reset_performa
 
 utils.show_pool_filters('pool_filter_mode_bribes', on_change_callback=reset_performance_view)
 
-# Date filter: Year + Quarter (applies before pool display so data is filtered by period)
-filter_years, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_bribes")
-df = utils.apply_date_filter(df, filter_years, filter_quarter)
-df_bribes = utils.apply_date_filter(df_bribes, filter_years, filter_quarter)
+# Date filter: Year + Quarter (using dynamic filters)
+# Note: For bribes page, we need to filter both df and df_bribes
+df_combined_for_filter = df.copy()
+df_combined_for_filter = utils.show_date_filter_sidebar(df_combined_for_filter, key_prefix="date_filter_bribes")
+
+# Extract the date range from filtered df and apply to both dataframes
+if not df_combined_for_filter.empty and 'block_date' in df_combined_for_filter.columns:
+    min_date = df_combined_for_filter['block_date'].min()
+    max_date = df_combined_for_filter['block_date'].max()
+    df = df[(df['block_date'] >= min_date) & (df['block_date'] <= max_date)]
+    df_bribes = df_bribes[(df_bribes['block_date'] >= min_date) & (df_bribes['block_date'] <= max_date)]
+else:
+    df = df_combined_for_filter
 
 # Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_bribes')
