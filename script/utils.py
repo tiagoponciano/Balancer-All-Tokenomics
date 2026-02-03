@@ -2029,7 +2029,7 @@ def _normalize_gauge(addr):
 def get_votes_by_pool_from_main_df(df):
     """
     Build votes-by-pool summary from main dataframe (Balancer-Tokenomics via load_data()).
-    Returns one row per pool with: pool_symbol, votes, pct_votes, ranking, symbol_clean, gauge_address.
+    Returns one row per pool with: pool_symbol, votes, pct_votes, ranking, symbol_clean, project_contract_address, gauge_address.
     """
     if df is None or df.empty:
         return pd.DataFrame()
@@ -2037,17 +2037,30 @@ def get_votes_by_pool_from_main_df(df):
         return pd.DataFrame()
     df = df.copy()
     df['votes_received'] = pd.to_numeric(df['votes_received'], errors='coerce').fillna(0)
-    agg = df.groupby('pool_symbol', as_index=False).agg(
-        votes_received=('votes_received', 'sum'),
-        project_contract_address=('project_contract_address', 'first'),
-    )
+    
+    # Prepare aggregation dict - include gauge_address if available
+    agg_dict = {
+        'votes_received': ('votes_received', 'sum'),
+        'project_contract_address': ('project_contract_address', 'first'),
+    }
+    if 'gauge_address' in df.columns:
+        agg_dict['gauge_address'] = ('gauge_address', 'first')
+    
+    agg = df.groupby('pool_symbol', as_index=False).agg(**agg_dict)
+    
     total = agg['votes_received'].sum()
     agg['votes'] = agg['votes_received']
     agg['pct_votes'] = (agg['votes_received'] / total) if total else 0.0
     agg['ranking'] = agg['votes_received'].rank(method='min', ascending=False).astype(int)
     agg['symbol_clean'] = agg['pool_symbol'].fillna('').astype(str)
     agg['symbol'] = agg['pool_symbol']
-    agg['gauge_address'] = agg['project_contract_address'].fillna('').astype(str)
+    
+    # If gauge_address was not in original df, use project_contract_address as fallback
+    if 'gauge_address' not in agg.columns:
+        agg['gauge_address'] = agg['project_contract_address'].fillna('').astype(str)
+    else:
+        agg['gauge_address'] = agg['gauge_address'].fillna('').astype(str)
+    
     agg['gauge'] = agg['gauge_address']
     return agg
 

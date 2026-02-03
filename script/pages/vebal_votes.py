@@ -516,7 +516,7 @@ with tab3:
     
     with col_filter1:
         # Search/filter
-        search_term = st.text_input("🔍 Search gauge or address", placeholder="Type pool name or address...", key="search_gauge")
+        search_term = st.text_input("🔍 Search pool id or gauge address", placeholder="Type pool id or gauge address...", key="search_gauge")
     
     with col_filter2:
         # Filter by minimum votes
@@ -530,10 +530,10 @@ with tab3:
     
     # Apply filters
     if search_term:
-        # Search by pool name OR pool address
-        mask_name = display_df['symbol_clean'].str.contains(search_term, case=False, na=False)
-        mask_address = display_df['gauge_address'].str.contains(search_term, case=False, na=False) if 'gauge_address' in display_df.columns else False
-        display_df = display_df[mask_name | mask_address]
+        # Search by project_contract_address OR gauge_address
+        mask_project = display_df['project_contract_address'].str.contains(search_term, case=False, na=False) if 'project_contract_address' in display_df.columns else False
+        mask_gauge = display_df['gauge_address'].str.contains(search_term, case=False, na=False) if 'gauge_address' in display_df.columns else False
+        display_df = display_df[mask_project | mask_gauge]
     
     if min_votes > 0:
         display_df = display_df[display_df['votes'] >= min_votes]
@@ -554,7 +554,7 @@ with tab3:
     display_table = display_df[['ranking', 'symbol_clean', 'votes', 'pct_votes']].copy()
     display_table['votes'] = display_table['votes'].apply(lambda x: f"{x:,.0f}")
     display_table['pct_votes'] = display_table['pct_votes'].apply(lambda x: f"{x*100:.2f}%")
-    display_table.columns = ['Rank', 'Gauge', 'Votes', 'Share %']
+    display_table.columns = ['Rank', 'Pool', 'Votes', 'Share %']
     
     # Add rank highlighting
     st.dataframe(
