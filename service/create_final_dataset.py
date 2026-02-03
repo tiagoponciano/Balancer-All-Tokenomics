@@ -7,7 +7,7 @@ Merge based on:
 - block_date (veBAL) = day (votes_bribes_merged)
 - blockchain
 
-Removes rows where project_contract_address does not have gauge_address.
+Keeps all rows regardless of gauge_address presence (filtering can be done in the UI).
 """
 import pandas as pd
 from pathlib import Path
@@ -27,6 +27,7 @@ FINAL_COLUMNS = [
     'block_date',
     'project_contract_address',
     'gauge_address',
+    'has_gauge',
     'pool_symbol',
     'pool_type',
     'swap_amount_usd',
@@ -110,17 +111,10 @@ def create_final_dataset(
     
     print("\n🧹 Cleaning and preparing data...")
     
+    # Keep all rows - don't filter by gauge_address
+    # Users can filter by gauge_address presence in the Streamlit UI
     initial_vebal = len(vebal_df)
-    vebal_df = vebal_df[
-        vebal_df['gauge_address'].notna() & 
-        (vebal_df['gauge_address'] != '') &
-        (vebal_df['gauge_address'].astype(str).str.lower() != 'nan')
-    ]
-    removed = initial_vebal - len(vebal_df)
-    if removed > 0:
-        print(f"   Removed {removed:,} rows without gauge_address from veBAL")
-    
-    print(f"✅ veBAL after cleaning: {len(vebal_df):,} rows")
+    print(f"✅ veBAL after cleaning: {len(vebal_df):,} rows (all rows kept, including those without gauge_address)")
     
     # Define timezone removal function FIRST
     def remove_timezone(series):
@@ -273,6 +267,17 @@ def create_final_dataset(
             else:
                 final_df[col] = None
                 print(f"   ⚠️  Column not found: is_core - {col} created as empty")
+        elif col == 'has_gauge':
+            if 'gauge_address' in merged_df.columns:
+                final_df[col] = (
+                    merged_df['gauge_address'].notna() & 
+                    (merged_df['gauge_address'] != '') &
+                    (merged_df['gauge_address'].astype(str).str.lower() != 'nan')
+                )
+                print(f"   ✅ Created: {col} from gauge_address column")
+            else:
+                final_df[col] = False
+                print(f"   ⚠️  gauge_address not found - {col} set to False")
         else:
             final_df[col] = None
             print(f"   ⚠️  Column not found: {col} - created as empty")

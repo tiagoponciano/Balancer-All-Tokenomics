@@ -66,6 +66,14 @@ function applyButtonIds() {
                     if (!button.id || !button.id.startsWith('btn_all_versions_')) {
                         button.id = 'btn_all_versions_version_filter';
                     }
+                } else if (text === 'Gauge' || textLower === 'gauge') {
+                    if (!button.id || !button.id.startsWith('btn_gauge_')) {
+                        button.id = 'btn_gauge_filter';
+                    }
+                } else if (text === 'No Gauge' || textLower === 'no gauge') {
+                    if (!button.id || !button.id.startsWith('btn_no_gauge_')) {
+                        button.id = 'btn_no_gauge_filter';
+                    }
                 } else if (text === 'Top 20' || textLower === 'top 20') {
                     if (!button.id || !button.id.startsWith('btn_top20')) {
                         button.id = 'btn_top20';
@@ -223,18 +231,26 @@ if 'pool_filter_mode_votes' not in st.session_state:
 if 'version_filter_votes' not in st.session_state:
     st.session_state.version_filter_votes = 'all'  # Default: show all versions
 
+if 'gauge_filter_votes' not in st.session_state:
+    st.session_state.gauge_filter_votes = 'all'  # Default: show all pools
+
 # Version filter at the top of sidebar
 utils.show_version_filter('version_filter_votes')
+
+# Gauge filter (with gauge / without gauge)
+utils.show_gauge_filter('gauge_filter_votes')
 
 # Pool filters at the top of sidebar (FIRST)
 utils.show_pool_filters('pool_filter_mode_votes')
 
-# Date filter: Year + Quarter (appears below Pool Selection)
-filter_year, filter_quarter = utils.show_date_filter_sidebar(df_main, key_prefix="date_filter_votes")
-df_main = utils.apply_date_filter(df_main, filter_year, filter_quarter)
+# Date filter: Year + Quarter (using dynamic filters)
+df_main = utils.show_date_filter_sidebar(df_main, key_prefix="date_filter_votes")
 
 # Apply version filter
 df_main = utils.apply_version_filter(df_main, 'version_filter_votes')
+
+# Apply gauge filter
+df_main = utils.apply_gauge_filter(df_main, 'gauge_filter_votes')
 
 if df_main.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")
@@ -516,7 +532,7 @@ with tab3:
     
     with col_filter1:
         # Search/filter
-        search_term = st.text_input("🔍 Search gauge", placeholder="Type to filter...", key="search_gauge")
+        search_term = st.text_input("🔍 Search pool id or gauge address", placeholder="Type pool id or gauge address...", key="search_gauge")
     
     with col_filter2:
         # Filter by minimum votes
@@ -530,9 +546,10 @@ with tab3:
     
     # Apply filters
     if search_term:
-        display_df = display_df[
-            display_df['symbol_clean'].str.contains(search_term, case=False, na=False)
-        ]
+        # Search by project_contract_address OR gauge_address
+        mask_project = display_df['project_contract_address'].str.contains(search_term, case=False, na=False) if 'project_contract_address' in display_df.columns else False
+        mask_gauge = display_df['gauge_address'].str.contains(search_term, case=False, na=False) if 'gauge_address' in display_df.columns else False
+        display_df = display_df[mask_project | mask_gauge]
     
     if min_votes > 0:
         display_df = display_df[display_df['votes'] >= min_votes]
@@ -553,7 +570,7 @@ with tab3:
     display_table = display_df[['ranking', 'symbol_clean', 'votes', 'pct_votes']].copy()
     display_table['votes'] = display_table['votes'].apply(lambda x: f"{x:,.0f}")
     display_table['pct_votes'] = display_table['pct_votes'].apply(lambda x: f"{x*100:.2f}%")
-    display_table.columns = ['Rank', 'Gauge', 'Votes', 'Share %']
+    display_table.columns = ['Rank', 'Pool', 'Votes', 'Share %']
     
     # Add rank highlighting
     st.dataframe(

@@ -58,6 +58,8 @@ if 'pool_filter_mode_bribes' not in st.session_state:
     st.session_state.pool_filter_mode_bribes = 'all'  # Default: show all pools
 if 'version_filter_bribes' not in st.session_state:
     st.session_state.version_filter_bribes = 'all'  # Default: show all versions
+if 'gauge_filter_bribes' not in st.session_state:
+    st.session_state.gauge_filter_bribes = 'all'  # Default: show all pools
 if 'show_performance_by_pool' not in st.session_state:
     st.session_state.show_performance_by_pool = False
 if 'performance_page' not in st.session_state:
@@ -115,6 +117,14 @@ function applyButtonIds() {
                 } else if (text === 'All Versions' || textLower === 'all versions') {
                     if (!button.id || !button.id.startsWith('btn_all_versions_')) {
                         button.id = 'btn_all_versions_version_filter';
+                    }
+                } else if (text === 'Gauge' || textLower === 'gauge') {
+                    if (!button.id || !button.id.startsWith('btn_gauge_')) {
+                        button.id = 'btn_gauge_filter';
+                    }
+                } else if (text === 'No Gauge' || textLower === 'no gauge') {
+                    if (!button.id || !button.id.startsWith('btn_no_gauge_')) {
+                        button.id = 'btn_no_gauge_filter';
                     }
                 } else if (text === 'Top 20' || textLower === 'top 20') {
                     if (!button.id || !button.id.startsWith('btn_top20')) {
@@ -222,16 +232,32 @@ def reset_performance_view():
 # Version filter at the top of sidebar
 utils.show_version_filter('version_filter_bribes', on_change_callback=reset_performance_view)
 
+# Gauge filter (Gauge / No Gauge)
+utils.show_gauge_filter('gauge_filter_bribes', on_change_callback=reset_performance_view)
+
 utils.show_pool_filters('pool_filter_mode_bribes', on_change_callback=reset_performance_view)
 
-# Date filter: Year + Quarter (applies before pool display so data is filtered by period)
-filter_year, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_bribes")
-df = utils.apply_date_filter(df, filter_year, filter_quarter)
-df_bribes = utils.apply_date_filter(df_bribes, filter_year, filter_quarter)
+# Date filter: Year + Quarter (using dynamic filters)
+# Note: For bribes page, we need to filter both df and df_bribes
+df_combined_for_filter = df.copy()
+df_combined_for_filter = utils.show_date_filter_sidebar(df_combined_for_filter, key_prefix="date_filter_bribes")
+
+# Extract the date range from filtered df and apply to both dataframes
+if not df_combined_for_filter.empty and 'block_date' in df_combined_for_filter.columns:
+    min_date = df_combined_for_filter['block_date'].min()
+    max_date = df_combined_for_filter['block_date'].max()
+    df = df[(df['block_date'] >= min_date) & (df['block_date'] <= max_date)]
+    df_bribes = df_bribes[(df_bribes['block_date'] >= min_date) & (df_bribes['block_date'] <= max_date)]
+else:
+    df = df_combined_for_filter
 
 # Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_bribes')
 df_bribes = utils.apply_version_filter(df_bribes, 'version_filter_bribes')
+
+# Apply gauge filter
+df = utils.apply_gauge_filter(df, 'gauge_filter_bribes')
+df_bribes = utils.apply_gauge_filter(df_bribes, 'gauge_filter_bribes')
 
 if df.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")
@@ -430,10 +456,51 @@ st.markdown("### 🏆 Pool Rankings")
 # Build ranking source from pool_bribes (merged data)
 all_pools_for_ranking = None
 if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in pool_bribes.columns:
-    rr = pool_bribes[[pool_col, "pool_title", "pool_name", bribe_col]].copy()
+    # Get additional columns: blockchain, gauge_address, version
+    cols_to_include = [pool_col, "pool_title", "pool_name", bribe_col]
+    if "blockchain" in pool_bribes.columns:
+        cols_to_include.append("blockchain")
+    if "gauge_address" in pool_bribes.columns:
+        cols_to_include.append("gauge_address")
+    elif "project_contract_address" in pool_bribes.columns:
+        cols_to_include.append("project_contract_address")
+    
+    rr = pool_bribes[cols_to_include].copy()
     rr = rr.rename(columns={pool_col: "pool", bribe_col: "bribe_amount"})
     rr["pool_title"] = rr.get("pool_title", rr["pool"]).fillna(rr["pool"])
     rr["pool_name"] = rr.get("pool_name", rr["pool"]).fillna(rr["pool"])
+    
+    # Add version and address columns if not present
+    if "blockchain" not in rr.columns:
+        # Try to get from df_bribes_display
+        if not df_bribes_display.empty and "blockchain" in df_bribes_display.columns and "pool_symbol" in df_bribes_display.columns:
+            blockchain_map = df_bribes_display.groupby("pool_symbol")["blockchain"].first().to_dict()
+            rr["blockchain"] = rr["pool"].map(blockchain_map).fillna("Unknown")
+        else:
+            rr["blockchain"] = "Unknown"
+    
+    if "gauge_address" not in rr.columns and "project_contract_address" not in rr.columns:
+        # Try to get from df_bribes_display
+        if not df_bribes_display.empty and "pool_symbol" in df_bribes_display.columns:
+            addr_col_source = "gauge_address" if "gauge_address" in df_bribes_display.columns else "project_contract_address"
+            if addr_col_source in df_bribes_display.columns:
+                address_map = df_bribes_display.groupby("pool_symbol")[addr_col_source].first().to_dict()
+                rr["gauge_address"] = rr["pool"].map(address_map).fillna("")
+            else:
+                rr["gauge_address"] = ""
+        else:
+            rr["gauge_address"] = ""
+    elif "project_contract_address" in rr.columns and "gauge_address" not in rr.columns:
+        rr["gauge_address"] = rr["project_contract_address"]
+    
+    # Add version column
+    if not df_bribes_display.empty and "version" in df_bribes_display.columns and "pool_symbol" in df_bribes_display.columns:
+        version_map = df_bribes_display.groupby("pool_symbol")["version"].first().to_dict()
+        rr["version"] = rr["pool"].map(version_map).fillna(0).astype(int)
+        rr["version_display"] = rr["version"].apply(lambda x: f"V{x}" if x in [2, 3] else "")
+    else:
+        rr["version_display"] = ""
+    
     all_pools_for_ranking = rr
 
 tab1, tab2 = st.tabs(["💰 Top Bribes", "🗳️ veBAL Votes"])
@@ -474,13 +541,90 @@ with tab1:
         # Sort by bribe amount descending
         ranking_df = ranking_df.sort_values('Total Bribes (USD)', ascending=False)
         
-        # Display all pools
-        display_df = ranking_df[['pool', 'Total Bribes (USD)']].copy()
-        display_df.columns = ['Pool', 'Total Bribes (USD)']
+        # Generate links for Balancer UI and Explorer
+        if 'blockchain' in ranking_df.columns and 'gauge_address' in ranking_df.columns:
+            ranking_df['balancer_url'] = ranking_df.apply(
+                lambda row: utils.get_balancer_ui_url(
+                    row['blockchain'], 
+                    row['gauge_address'], 
+                    row.get('version', None)
+                ), 
+                axis=1
+            )
+            ranking_df['explorer_url'] = ranking_df.apply(
+                lambda row: utils.get_explorer_url(row['blockchain'], row['gauge_address']), 
+                axis=1
+            )
+        
+
+        display_df = ranking_df.copy()
+        
+        if 'balancer_url' in display_df.columns:
+            display_df['pool_display'] = display_df.apply(
+                lambda row: f"{row['balancer_url']}?label={row['pool']}" if pd.notna(row.get('balancer_url')) and row['balancer_url'] else row['pool'], 
+                axis=1
+            )
+        else:
+            display_df['pool_display'] = display_df['pool']
+
+        if 'blockchain' in display_df.columns:
+            if 'explorer_url' in display_df.columns:
+                display_df['chain_display'] = display_df.apply(
+                    lambda row: f"{row['explorer_url']}?label={row['blockchain']}" if pd.notna(row.get('explorer_url')) and row['explorer_url'] else row['blockchain'], 
+                    axis=1
+                )
+            else:
+                display_df['chain_display'] = display_df['blockchain']
+        
         display_df['Total Bribes (USD)'] = display_df['Total Bribes (USD)'].apply(
             lambda x: f"${float(x):,.0f}" if pd.notna(x) and float(x) > 0 else "$0"
         )
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+        final_cols = ['pool_display']
+        final_names = ['Pool']
+        
+        if 'chain_display' in display_df.columns:
+            final_cols.append('chain_display')
+            final_names.append('Chain')
+            
+        if 'version_display' in display_df.columns:
+            final_cols.append('version_display')
+            final_names.append('Version')
+            
+        final_cols.append('Total Bribes (USD)')
+        final_names.append('Total Bribes (USD)')
+
+        if 'gauge_address' in display_df.columns:
+            final_cols.append('gauge_address')
+            final_names.append('Address')
+
+        df_show = display_df[final_cols].copy()
+        df_show.columns = final_names
+        
+        column_config = {}
+        
+        column_config['Pool'] = st.column_config.LinkColumn(
+            'Pool', 
+            width='medium',
+            display_text=r"label=(.*)" 
+        )
+        
+        if 'Chain' in df_show.columns:
+            column_config['Chain'] = st.column_config.LinkColumn(
+                'Chain', 
+                width='small',
+                display_text=r"label=(.*)" 
+            )
+            
+        if 'Address' in df_show.columns:
+            column_config['Address'] = st.column_config.TextColumn('Address', width='small')
+
+        st.dataframe(
+            df_show, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config=column_config
+        )
     elif bribe_col in pool_bribes.columns and not pool_bribes.empty:
         # Fallback: show from pool_bribes
         bribes_with_data = pool_bribes[pool_bribes[bribe_col] > 0]
@@ -560,9 +704,39 @@ with tab2:
         # Sort by veBAL votes descending
         ranking_df = ranking_df.sort_values('veBAL Votes', ascending=False)
         
-        # Display
-        display_df = ranking_df[['pool', 'veBAL Votes', 'Vote Share %', 'Ranking']].copy()
-        display_df.columns = ['Pool', 'veBAL Votes', 'Vote Share %', 'Ranking']
+        if 'blockchain' in ranking_df.columns and 'gauge_address' in ranking_df.columns:
+            ranking_df['balancer_url'] = ranking_df.apply(
+                lambda row: utils.get_balancer_ui_url(
+                    row['blockchain'], 
+                    row['gauge_address'], 
+                    row.get('version', None)
+                ), 
+                axis=1
+            )
+            ranking_df['explorer_url'] = ranking_df.apply(
+                lambda row: utils.get_explorer_url(row['blockchain'], row['gauge_address']), 
+                axis=1
+            )
+        
+        display_df = ranking_df.copy()
+
+        if 'balancer_url' in display_df.columns:
+            display_df['pool_display'] = display_df.apply(
+                lambda row: f"{row['balancer_url']}?label={row['pool']}" if pd.notna(row.get('balancer_url')) and row['balancer_url'] else row['pool'], 
+                axis=1
+            )
+        else:
+            display_df['pool_display'] = display_df['pool']
+
+        if 'blockchain' in display_df.columns:
+            if 'explorer_url' in display_df.columns:
+                display_df['chain_display'] = display_df.apply(
+                    lambda row: f"{row['explorer_url']}?label={row['blockchain']}" if pd.notna(row.get('explorer_url')) and row['explorer_url'] else row['blockchain'], 
+                    axis=1
+                )
+            else:
+                display_df['chain_display'] = display_df['blockchain']
+        
         display_df['veBAL Votes'] = display_df['veBAL Votes'].apply(
             lambda x: f"{float(x):,.0f}" if pd.notna(x) and float(x) > 0 else "0"
         )
@@ -572,7 +746,51 @@ with tab2:
         display_df['Ranking'] = display_df['Ranking'].apply(
             lambda x: f"#{int(x)}" if pd.notna(x) else "N/A"
         )
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        final_cols = ['pool_display']
+        final_names = ['Pool']
+        
+        if 'chain_display' in display_df.columns:
+            final_cols.append('chain_display')
+            final_names.append('Chain')
+            
+        if 'version_display' in display_df.columns:
+            final_cols.append('version_display')
+            final_names.append('Version')
+        
+        final_cols.extend(['veBAL Votes', 'Vote Share %', 'Ranking'])
+        final_names.extend(['veBAL Votes', 'Vote Share %', 'Ranking'])
+        
+        if 'gauge_address' in display_df.columns:
+            final_cols.append('gauge_address')
+            final_names.append('Address')
+        
+        df_show = display_df[final_cols].copy()
+        df_show.columns = final_names
+        
+        column_config = {}
+        column_config['Pool'] = st.column_config.LinkColumn(
+            'Pool', 
+            width='medium',
+            display_text=r"label=(.*)"
+        )
+        
+        if 'Chain' in df_show.columns:
+            column_config['Chain'] = st.column_config.LinkColumn(
+                'Chain', 
+                width='small',
+                display_text=r"label=(.*)"
+            )
+            
+        if 'Address' in df_show.columns:
+            column_config['Address'] = st.column_config.TextColumn('Address', width='small')
+        
+        st.dataframe(
+            df_show, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config=column_config
+        )
         
         # Add visualization if there's data (only show when "Select All" is active)
         if st.session_state.pool_filter_mode_bribes == 'all':

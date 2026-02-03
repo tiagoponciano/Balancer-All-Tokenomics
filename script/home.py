@@ -69,6 +69,14 @@ function applyButtonIds() {
                     if (!button.id || !button.id.startsWith('btn_all_versions_')) {
                         button.id = 'btn_all_versions_version_filter';
                     }
+                } else if (text === 'Gauge' || textLower === 'gauge') {
+                    if (!button.id || !button.id.startsWith('btn_gauge_')) {
+                        button.id = 'btn_gauge_filter';
+                    }
+                } else if (text === 'No Gauge' || textLower === 'no gauge') {
+                    if (!button.id || !button.id.startsWith('btn_no_gauge_')) {
+                        button.id = 'btn_no_gauge_filter';
+                    }
                 } else if (text === 'Top 20' || textLower === 'top 20') {
                     if (!button.id || !button.id.startsWith('btn_top20')) {
                         button.id = 'btn_top20';
@@ -124,18 +132,26 @@ if 'pool_filter_mode' not in st.session_state:
 if 'version_filter_home' not in st.session_state:
     st.session_state.version_filter_home = 'all'  # Default: show all versions
 
+if 'gauge_filter_home' not in st.session_state:
+    st.session_state.gauge_filter_home = 'all'  # Default: show all pools
+
 # Version filter at the top of sidebar
 utils.show_version_filter('version_filter_home')
+
+# Gauge filter (with gauge / without gauge)
+utils.show_gauge_filter('gauge_filter_home')
 
 # Pool filters at the top of sidebar (FIRST - before any other sidebar content)
 utils.show_pool_filters('pool_filter_mode')
 
-# Date filter: Year + Quarter (1Q–4Q); quarter only appears when year is selected
-filter_year, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_home")
-df = utils.apply_date_filter(df, filter_year, filter_quarter)
+# Date filter: Year + Quarter (using dynamic filters)
+df = utils.show_date_filter_sidebar(df, key_prefix="date_filter_home")
 
 # Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_home')
+
+# Apply gauge filter
+df = utils.apply_gauge_filter(df, 'gauge_filter_home')
 
 if df.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")

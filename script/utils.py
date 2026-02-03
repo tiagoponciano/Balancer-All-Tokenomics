@@ -610,6 +610,108 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
+        /* --- BOTÕES DE GAUGE (Gauge, No Gauge, Select All) --- */
+        button[id^="btn_gauge_"],
+        button[id^="btn_no_gauge_"],
+        button[id^="btn_all_gauge_"],
+        [id^="btn_gauge_"],
+        [id^="btn_no_gauge_"],
+        [id^="btn_all_gauge_"] {
+            width: 110px !important;
+            min-width: 110px !important;
+            background: linear-gradient(135deg, rgba(103, 162, 225, 0.18) 0%, rgba(103, 162, 225, 0.08) 100%) !important;
+            border: 1.5px solid rgba(103, 162, 225, 0.45) !important;
+            box-shadow: 0 3px 12px rgba(103, 162, 225, 0.15) !important;
+            border-radius: 12px !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            position: relative !important;
+            overflow: hidden !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer !important;
+            animation: sidebarSaltinho 0.35s ease-out both !important;
+        }
+        
+        button[id^="btn_gauge_"]::before,
+        button[id^="btn_no_gauge_"]::before,
+        button[id^="btn_all_gauge_"]::before,
+        [id^="btn_gauge_"]::before,
+        [id^="btn_no_gauge_"]::before,
+        [id^="btn_all_gauge_"]::before {
+            content: '' !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: -100% !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent) !important;
+            transition: left 0.6s ease !important;
+            pointer-events: none !important;
+            z-index: 1 !important;
+        }
+        
+        button[id^="btn_gauge_"]::after,
+        button[id^="btn_no_gauge_"]::after,
+        button[id^="btn_all_gauge_"]::after,
+        [id^="btn_gauge_"]::after,
+        [id^="btn_no_gauge_"]::after,
+        [id^="btn_all_gauge_"]::after {
+            content: '' !important;
+            position: absolute !important;
+            inset: 0 !important;
+            border-radius: 12px !important;
+            padding: 1.5px !important;
+            background: linear-gradient(135deg, rgba(103, 162, 225, 0.6), rgba(103, 162, 225, 0.2)) !important;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0) !important;
+            -webkit-mask-composite: xor !important;
+            mask-composite: exclude !important;
+            opacity: 0 !important;
+            transition: opacity 0.3s !important;
+            pointer-events: none !important;
+            z-index: 0 !important;
+        }
+        
+        button[id^="btn_gauge_"]:hover,
+        button[id^="btn_no_gauge_"]:hover,
+        button[id^="btn_all_gauge_"]:hover,
+        [id^="btn_gauge_"]:hover,
+        [id^="btn_no_gauge_"]:hover,
+        [id^="btn_all_gauge_"]:hover {
+            background: linear-gradient(135deg, rgba(103, 162, 225, 0.28) 0%, rgba(103, 162, 225, 0.15) 100%) !important;
+            border-color: rgba(103, 162, 225, 0.7) !important;
+            transform: translateY(-3px) scale(1.02) !important;
+            box-shadow: 0 6px 20px rgba(103, 162, 225, 0.3) !important;
+        }
+        
+        button[id^="btn_gauge_"]:hover::before,
+        button[id^="btn_no_gauge_"]:hover::before,
+        button[id^="btn_all_gauge_"]:hover::before,
+        [id^="btn_gauge_"]:hover::before,
+        [id^="btn_no_gauge_"]:hover::before,
+        [id^="btn_all_gauge_"]:hover::before {
+            left: 100% !important;
+        }
+        
+        button[id^="btn_gauge_"]:hover::after,
+        button[id^="btn_no_gauge_"]:hover::after,
+        button[id^="btn_all_gauge_"]:hover::after,
+        [id^="btn_gauge_"]:hover::after,
+        [id^="btn_no_gauge_"]:hover::after,
+        [id^="btn_all_gauge_"]:hover::after {
+            opacity: 1 !important;
+        }
+        
+        button[id^="btn_gauge_"]:active,
+        button[id^="btn_no_gauge_"]:active,
+        button[id^="btn_all_gauge_"]:active,
+        [id^="btn_gauge_"]:active,
+        [id^="btn_no_gauge_"]:active,
+        [id^="btn_all_gauge_"]:active {
+            transform: translateY(-1px) scale(1.01) !important;
+            box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
+        }
+        
         /* --- BOTÃO SHOW PERFORMANCE BY POOL --- */
         /* Seletor usando atributo data customizado (mais confiável) */
         button[data-button-type="performance"],
@@ -1491,6 +1593,74 @@ def show_version_filter(session_key='version_filter', on_change_callback=None):
             st.rerun()
 
 
+def get_balancer_ui_url(blockchain, pool_address, version=None):
+    """
+    Generate Balancer UI URL for a pool
+    
+    Args:
+        blockchain: Chain name (ethereum, arbitrum, polygon, etc.)
+        pool_address: Pool contract address / poolId
+        version: Pool version (2 or 3), optional - will auto-detect from address length
+        
+    Returns:
+        URL string to Balancer UI pool page
+    """
+    if pd.isna(pool_address) or not pool_address or str(pool_address).strip() == '':
+        return ''
+    
+    address = str(pool_address).strip()
+    
+    # Determine version from address length if not provided
+    # V3 pools: 42 characters (0x + 40 hex chars)
+    # V2 pools: 66 characters (0x + 64 hex chars - includes pool ID)
+    if version is None:
+        if len(address) > 42:
+            version = 2
+        else:
+            version = 3
+    
+    # Convert version to v2/v3 string
+    version_str = f"v{version}" if version in [2, 3] else "v2"
+    
+    # Use blockchain name directly (ethereum, arbitrum, etc.)
+    chain = str(blockchain).lower()
+    
+    return f"https://balancer.fi/pools/{chain}/{version_str}/{address}"
+
+
+def get_explorer_url(blockchain, address):
+    """
+    Generate block explorer URL for an address
+    
+    Args:
+        blockchain: Chain name (ethereum, arbitrum, polygon, etc.)
+        address: Contract address
+        
+    Returns:
+        URL string to block explorer
+    """
+    if pd.isna(address) or not address or str(address).strip() == '':
+        return ''
+    
+    # Map blockchain names to explorer URLs
+    explorer_map = {
+        'ethereum': 'https://etherscan.io/address',
+        'arbitrum': 'https://arbiscan.io/address',
+        'polygon': 'https://polygonscan.com/address',
+        'optimism': 'https://optimistic.etherscan.io/address',
+        'avalanche_c': 'https://snowtrace.io/address',
+        'avalanche': 'https://snowtrace.io/address',
+        'base': 'https://basescan.org/address',
+        'gnosis': 'https://gnosisscan.io/address',
+        'zkevm': 'https://zkevm.polygonscan.com/address'
+    }
+    
+    explorer_base = explorer_map.get(str(blockchain).lower(), 'https://etherscan.io/address')
+    addr = str(address).strip()
+    
+    return f"{explorer_base}/{addr}"
+
+
 def apply_version_filter(df, session_key='version_filter'):
     """
     Apply version filter to the dataframe
@@ -1518,6 +1688,86 @@ def apply_version_filter(df, session_key='version_filter'):
     elif version_filter == 'v3':
         # Version column contains integers (2 or 3), not strings
         return df[df['version'] == 3].copy()
+    
+    return df
+
+
+def show_gauge_filter(session_key='gauge_filter', on_change_callback=None):
+    """
+    Display gauge address filter buttons in the sidebar
+    
+    Args:
+        session_key: Session state key for storing filter mode (default: 'gauge_filter')
+        on_change_callback: Optional callback function to call when filter changes
+    """
+    # Initialize session state
+    if session_key not in st.session_state:
+        st.session_state[session_key] = 'all'
+    
+    # Create filter container in sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🎯 Gauge Filter")
+    
+    col_btn1, col_btn2 = st.sidebar.columns(2)
+    
+    with col_btn1:
+        if st.button("Gauge", key=f"btn_gauge_{session_key}", use_container_width=True):
+            st.session_state[session_key] = 'gauge'
+            if on_change_callback:
+                on_change_callback()
+            st.rerun()
+    
+    with col_btn2:
+        if st.button("No Gauge", key=f"btn_no_gauge_{session_key}", use_container_width=True):
+            st.session_state[session_key] = 'no_gauge'
+            if on_change_callback:
+                on_change_callback()
+            st.rerun()
+    
+    # Show "Select All" button only when a filter is active
+    if st.session_state[session_key] in ['gauge', 'no_gauge']:
+        if st.sidebar.button("Select All", key=f"btn_all_gauge_{session_key}", use_container_width=True):
+            st.session_state[session_key] = 'all'
+            if on_change_callback:
+                on_change_callback()
+            st.rerun()
+
+
+def apply_gauge_filter(df, session_key='gauge_filter'):
+    """
+    Apply gauge address filter to the dataframe
+    
+    Args:
+        df: DataFrame to filter
+        session_key: Session state key for gauge filter
+        
+    Returns:
+        Filtered DataFrame
+    """
+    if df.empty or 'gauge_address' not in df.columns:
+        return df
+    
+    if session_key not in st.session_state:
+        st.session_state[session_key] = 'all'
+    
+    gauge_filter = st.session_state[session_key]
+    
+    if gauge_filter == 'all':
+        return df
+    elif gauge_filter == 'gauge':
+        # Filter pools that have gauge_address (not null, not empty, not 'nan')
+        return df[
+            df['gauge_address'].notna() & 
+            (df['gauge_address'] != '') &
+            (df['gauge_address'].astype(str).str.lower() != 'nan')
+        ].copy()
+    elif gauge_filter == 'no_gauge':
+        # Filter pools that don't have gauge_address (null, empty, or 'nan')
+        return df[
+            df['gauge_address'].isna() | 
+            (df['gauge_address'] == '') |
+            (df['gauge_address'].astype(str).str.lower() == 'nan')
+        ].copy()
     
     return df
 
@@ -1575,44 +1825,69 @@ QUARTER_OPTIONS = [
 
 def show_date_filter_sidebar(df, key_prefix="date_filter"):
     """
-    Date filter in sidebar: Year (dropdown) and Quarter (only appears when a year is selected).
-    Returns (year, quarter_months): year int or None, quarter_months list of months or None.
+    Date filter in sidebar using streamlit-dynamic-filters with quarter descriptions.
+    Returns the filtered dataframe.
     """
     if df is None or df.empty or "block_date" not in df.columns:
-        return None, None
-    dt = pd.to_datetime(df["block_date"], errors="coerce")
-    years = sorted(dt.dt.year.dropna().astype(int).unique().tolist())
-    if not years:
-        return None, None
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📅 Date Filter")
-
-    year_options = ["All"] + [str(y) for y in years]
-    selected_year = st.sidebar.selectbox(
-        "Year",
-        options=year_options,
-        key=f"{key_prefix}_year",
-    )
-
-    if selected_year == "All":
-        return None, None
-
-    year_int = int(selected_year)
-    quarter_labels = [q[0] for q in QUARTER_OPTIONS]
-    selected_quarter = st.sidebar.selectbox(
-        "Quarter",
-        options=quarter_labels,
-        key=f"{key_prefix}_quarter",
-    )
-
-    quarter_months = None
-    for label, months in QUARTER_OPTIONS:
-        if label == selected_quarter and months is not None:
-            quarter_months = months
-            break
-
-    return year_int, quarter_months
+        return df
+    
+    try:
+        from streamlit_dynamic_filters import DynamicFilters
+        
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 📅 Date Filter")
+        
+        # Prepare dataframe for filtering - add year and quarter columns with descriptions
+        df_filter = df.copy()
+        dt = pd.to_datetime(df_filter["block_date"], errors="coerce")
+        
+        # Filter out rows with invalid dates
+        valid_dates_mask = dt.notna()
+        df_filter = df_filter[valid_dates_mask].copy()
+        dt = dt[valid_dates_mask]
+        
+        # Add Year column
+        df_filter['Year'] = dt.dt.year.fillna(0).astype(int).astype(str)
+        
+        # Map quarter to descriptive labels
+        quarter_map = {
+            1: '1Q (Jan-Mar)',
+            2: '2Q (Apr-Jun)',
+            3: '3Q (Jul-Sep)',
+            4: '4Q (Oct-Dec)'
+        }
+        df_filter['Quarter'] = dt.dt.quarter.fillna(0).astype(int).map(quarter_map).fillna('Unknown')
+        
+        # Remove any rows with 'Unknown' quarter
+        df_filter = df_filter[df_filter['Quarter'] != 'Unknown'].copy()
+        
+        if df_filter.empty:
+            st.sidebar.warning("⚠️ No valid dates found in the data")
+            return df
+        
+        # Create dynamic filters - use unique column names to avoid conflicts
+        dynamic_filters = DynamicFilters(
+            df_filter, 
+            filters=['Year', 'Quarter']
+        )
+        
+        # Display filters in sidebar
+        dynamic_filters.display_filters(location='sidebar')
+        
+        # Get filtered dataframe and remove temporary columns
+        filtered_df = dynamic_filters.filter_df()
+        filtered_df = filtered_df.drop(columns=['Year', 'Quarter'], errors='ignore')
+        
+        return filtered_df
+        
+    except ImportError:
+        st.sidebar.warning("⚠️ streamlit-dynamic-filters not installed. Install with: pip install streamlit-dynamic-filters")
+        return df
+    except Exception as e:
+        st.sidebar.error(f"⚠️ Error with dynamic filters: {str(e)}")
+        import traceback
+        st.sidebar.code(traceback.format_exc())
+        return df
 
 
 def apply_date_filter(df, year, quarter_months):
@@ -1757,6 +2032,17 @@ def _process_main_data(df):
     inc = df['direct_incentives']
     df['dao_profit_usd'] = rev - inc
     df['emissions_roi'] = np.where(inc > 0, rev / inc, 0.0)
+    
+    # Add has_gauge column (True if gauge_address exists and is not empty/nan)
+    if 'gauge_address' in df.columns:
+        df['has_gauge'] = (
+            df['gauge_address'].notna() & 
+            (df['gauge_address'] != '') &
+            (df['gauge_address'].astype(str).str.lower() != 'nan')
+        )
+    else:
+        df['has_gauge'] = False
+    
     return classify_pools(df)
 
 
@@ -1792,6 +2078,17 @@ def _process_merged_data(df):
     inc = df['direct_incentives']
     df['dao_profit_usd'] = rev - inc
     df['emissions_roi'] = np.where(inc > 0, rev / inc, 0.0)
+    
+    # Add has_gauge column (True if gauge_address exists and is not empty/nan)
+    if 'gauge_address' in df.columns:
+        df['has_gauge'] = (
+            df['gauge_address'].notna() & 
+            (df['gauge_address'] != '') &
+            (df['gauge_address'].astype(str).str.lower() != 'nan')
+        )
+    else:
+        df['has_gauge'] = False
+    
     df = classify_pools(df)
     return df
 
@@ -1961,7 +2258,7 @@ def _normalize_gauge(addr):
 def get_votes_by_pool_from_main_df(df):
     """
     Build votes-by-pool summary from main dataframe (Balancer-Tokenomics via load_data()).
-    Returns one row per pool with: pool_symbol, votes, pct_votes, ranking, symbol_clean, gauge_address.
+    Returns one row per pool with: pool_symbol, votes, pct_votes, ranking, symbol_clean, project_contract_address, gauge_address.
     """
     if df is None or df.empty:
         return pd.DataFrame()
@@ -1969,17 +2266,30 @@ def get_votes_by_pool_from_main_df(df):
         return pd.DataFrame()
     df = df.copy()
     df['votes_received'] = pd.to_numeric(df['votes_received'], errors='coerce').fillna(0)
-    agg = df.groupby('pool_symbol', as_index=False).agg(
-        votes_received=('votes_received', 'sum'),
-        project_contract_address=('project_contract_address', 'first'),
-    )
+    
+    # Prepare aggregation dict - include gauge_address if available
+    agg_dict = {
+        'votes_received': ('votes_received', 'sum'),
+        'project_contract_address': ('project_contract_address', 'first'),
+    }
+    if 'gauge_address' in df.columns:
+        agg_dict['gauge_address'] = ('gauge_address', 'first')
+    
+    agg = df.groupby('pool_symbol', as_index=False).agg(**agg_dict)
+    
     total = agg['votes_received'].sum()
     agg['votes'] = agg['votes_received']
     agg['pct_votes'] = (agg['votes_received'] / total) if total else 0.0
     agg['ranking'] = agg['votes_received'].rank(method='min', ascending=False).astype(int)
     agg['symbol_clean'] = agg['pool_symbol'].fillna('').astype(str)
     agg['symbol'] = agg['pool_symbol']
-    agg['gauge_address'] = agg['project_contract_address'].fillna('').astype(str)
+    
+    # If gauge_address was not in original df, use project_contract_address as fallback
+    if 'gauge_address' not in agg.columns:
+        agg['gauge_address'] = agg['project_contract_address'].fillna('').astype(str)
+    else:
+        agg['gauge_address'] = agg['gauge_address'].fillna('').astype(str)
+    
     agg['gauge'] = agg['gauge_address']
     return agg
 
