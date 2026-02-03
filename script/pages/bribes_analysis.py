@@ -430,10 +430,51 @@ st.markdown("### 🏆 Pool Rankings")
 # Build ranking source from pool_bribes (merged data)
 all_pools_for_ranking = None
 if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in pool_bribes.columns:
-    rr = pool_bribes[[pool_col, "pool_title", "pool_name", bribe_col]].copy()
+    # Get additional columns: blockchain, gauge_address, version
+    cols_to_include = [pool_col, "pool_title", "pool_name", bribe_col]
+    if "blockchain" in pool_bribes.columns:
+        cols_to_include.append("blockchain")
+    if "gauge_address" in pool_bribes.columns:
+        cols_to_include.append("gauge_address")
+    elif "project_contract_address" in pool_bribes.columns:
+        cols_to_include.append("project_contract_address")
+    
+    rr = pool_bribes[cols_to_include].copy()
     rr = rr.rename(columns={pool_col: "pool", bribe_col: "bribe_amount"})
     rr["pool_title"] = rr.get("pool_title", rr["pool"]).fillna(rr["pool"])
     rr["pool_name"] = rr.get("pool_name", rr["pool"]).fillna(rr["pool"])
+    
+    # Add version and address columns if not present
+    if "blockchain" not in rr.columns:
+        # Try to get from df_bribes_display
+        if not df_bribes_display.empty and "blockchain" in df_bribes_display.columns and "pool_symbol" in df_bribes_display.columns:
+            blockchain_map = df_bribes_display.groupby("pool_symbol")["blockchain"].first().to_dict()
+            rr["blockchain"] = rr["pool"].map(blockchain_map).fillna("Unknown")
+        else:
+            rr["blockchain"] = "Unknown"
+    
+    if "gauge_address" not in rr.columns and "project_contract_address" not in rr.columns:
+        # Try to get from df_bribes_display
+        if not df_bribes_display.empty and "pool_symbol" in df_bribes_display.columns:
+            addr_col_source = "gauge_address" if "gauge_address" in df_bribes_display.columns else "project_contract_address"
+            if addr_col_source in df_bribes_display.columns:
+                address_map = df_bribes_display.groupby("pool_symbol")[addr_col_source].first().to_dict()
+                rr["gauge_address"] = rr["pool"].map(address_map).fillna("")
+            else:
+                rr["gauge_address"] = ""
+        else:
+            rr["gauge_address"] = ""
+    elif "project_contract_address" in rr.columns and "gauge_address" not in rr.columns:
+        rr["gauge_address"] = rr["project_contract_address"]
+    
+    # Add version column
+    if not df_bribes_display.empty and "version" in df_bribes_display.columns and "pool_symbol" in df_bribes_display.columns:
+        version_map = df_bribes_display.groupby("pool_symbol")["version"].first().to_dict()
+        rr["version"] = rr["pool"].map(version_map).fillna(0).astype(int)
+        rr["version_display"] = rr["version"].apply(lambda x: f"V{x}" if x in [2, 3] else "")
+    else:
+        rr["version_display"] = ""
+    
     all_pools_for_ranking = rr
 
 tab1, tab2 = st.tabs(["💰 Top Bribes", "🗳️ veBAL Votes"])
@@ -474,13 +515,76 @@ with tab1:
         # Sort by bribe amount descending
         ranking_df = ranking_df.sort_values('Total Bribes (USD)', ascending=False)
         
-        # Display all pools
-        display_df = ranking_df[['pool', 'Total Bribes (USD)']].copy()
-        display_df.columns = ['Pool', 'Total Bribes (USD)']
+        # Generate links for Balancer UI and Explorer
+        if 'blockchain' in ranking_df.columns and 'gauge_address' in ranking_df.columns:
+            ranking_df['balancer_url'] = ranking_df.apply(
+                lambda row: utils.get_balancer_ui_url(
+                    row['blockchain'], 
+                    row['gauge_address'], 
+                    row.get('version', None)
+                ), 
+                axis=1
+            )
+            ranking_df['explorer_url'] = ranking_df.apply(
+                lambda row: utils.get_explorer_url(row['blockchain'], row['gauge_address']), 
+                axis=1
+            )
+        
+        # Display all pools with Chain, Version, Address, Links
+        cols_to_display = ['pool', 'Total Bribes (USD)']
+        col_names = ['Pool', 'Total Bribes (USD)']
+        
+        if 'blockchain' in ranking_df.columns:
+            cols_to_display.insert(1, 'blockchain')
+            col_names.insert(1, 'Chain')
+        if 'version_display' in ranking_df.columns:
+            cols_to_display.insert(2 if 'blockchain' in cols_to_display else 1, 'version_display')
+            col_names.insert(2 if 'blockchain' in cols_to_display else 1, 'Version')
+        if 'gauge_address' in ranking_df.columns:
+            cols_to_display.append('gauge_address')
+            col_names.append('Address')
+        if 'balancer_url' in ranking_df.columns:
+            cols_to_display.append('balancer_url')
+            col_names.append('Balancer UI')
+        if 'explorer_url' in ranking_df.columns:
+            cols_to_display.append('explorer_url')
+            col_names.append('Explorer')
+        
+        display_df = ranking_df[cols_to_display].copy()
+        display_df.columns = col_names
         display_df['Total Bribes (USD)'] = display_df['Total Bribes (USD)'].apply(
             lambda x: f"${float(x):,.0f}" if pd.notna(x) and float(x) > 0 else "$0"
         )
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Configure column display with links and tooltips
+        column_config = {}
+        if 'Address' in display_df.columns:
+            column_config['Address'] = st.column_config.TextColumn(
+                'Address',
+                help='Pool/Gauge Address',
+                width='small'
+            )
+        if 'Balancer UI' in display_df.columns:
+            column_config['Balancer UI'] = st.column_config.LinkColumn(
+                'Balancer UI',
+                help='View pool on Balancer App',
+                display_text='🔗 View',
+                width='small'
+            )
+        if 'Explorer' in display_df.columns:
+            column_config['Explorer'] = st.column_config.LinkColumn(
+                'Explorer',
+                help='View on block explorer',
+                display_text='🔍 Explorer',
+                width='small'
+            )
+        
+        st.dataframe(
+            display_df, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config=column_config if column_config else None
+        )
     elif bribe_col in pool_bribes.columns and not pool_bribes.empty:
         # Fallback: show from pool_bribes
         bribes_with_data = pool_bribes[pool_bribes[bribe_col] > 0]
@@ -560,9 +664,47 @@ with tab2:
         # Sort by veBAL votes descending
         ranking_df = ranking_df.sort_values('veBAL Votes', ascending=False)
         
-        # Display
-        display_df = ranking_df[['pool', 'veBAL Votes', 'Vote Share %', 'Ranking']].copy()
-        display_df.columns = ['Pool', 'veBAL Votes', 'Vote Share %', 'Ranking']
+        # Generate links for Balancer UI and Explorer
+        if 'blockchain' in ranking_df.columns and 'gauge_address' in ranking_df.columns:
+            ranking_df['balancer_url'] = ranking_df.apply(
+                lambda row: utils.get_balancer_ui_url(
+                    row['blockchain'], 
+                    row['gauge_address'], 
+                    row.get('version', None)
+                ), 
+                axis=1
+            )
+            ranking_df['explorer_url'] = ranking_df.apply(
+                lambda row: utils.get_explorer_url(row['blockchain'], row['gauge_address']), 
+                axis=1
+            )
+        
+        # Display with Chain, Version, Address, Links
+        cols_to_display = ['pool']
+        col_names = ['Pool']
+        
+        if 'blockchain' in ranking_df.columns:
+            cols_to_display.append('blockchain')
+            col_names.append('Chain')
+        if 'version_display' in ranking_df.columns:
+            cols_to_display.append('version_display')
+            col_names.append('Version')
+        
+        cols_to_display.extend(['veBAL Votes', 'Vote Share %', 'Ranking'])
+        col_names.extend(['veBAL Votes', 'Vote Share %', 'Ranking'])
+        
+        if 'gauge_address' in ranking_df.columns:
+            cols_to_display.append('gauge_address')
+            col_names.append('Address')
+        if 'balancer_url' in ranking_df.columns:
+            cols_to_display.append('balancer_url')
+            col_names.append('Balancer UI')
+        if 'explorer_url' in ranking_df.columns:
+            cols_to_display.append('explorer_url')
+            col_names.append('Explorer')
+        
+        display_df = ranking_df[cols_to_display].copy()
+        display_df.columns = col_names
         display_df['veBAL Votes'] = display_df['veBAL Votes'].apply(
             lambda x: f"{float(x):,.0f}" if pd.notna(x) and float(x) > 0 else "0"
         )
@@ -572,7 +714,36 @@ with tab2:
         display_df['Ranking'] = display_df['Ranking'].apply(
             lambda x: f"#{int(x)}" if pd.notna(x) else "N/A"
         )
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Configure column display with links and tooltips
+        column_config = {}
+        if 'Address' in display_df.columns:
+            column_config['Address'] = st.column_config.TextColumn(
+                'Address',
+                help='Pool/Gauge Address',
+                width='small'
+            )
+        if 'Balancer UI' in display_df.columns:
+            column_config['Balancer UI'] = st.column_config.LinkColumn(
+                'Balancer UI',
+                help='View pool on Balancer App',
+                display_text='🔗 View',
+                width='small'
+            )
+        if 'Explorer' in display_df.columns:
+            column_config['Explorer'] = st.column_config.LinkColumn(
+                'Explorer',
+                help='View on block explorer',
+                display_text='🔍 Explorer',
+                width='small'
+            )
+        
+        st.dataframe(
+            display_df, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config=column_config if column_config else None
+        )
         
         # Add visualization if there's data (only show when "Select All" is active)
         if st.session_state.pool_filter_mode_bribes == 'all':

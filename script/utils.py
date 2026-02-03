@@ -1491,6 +1491,74 @@ def show_version_filter(session_key='version_filter', on_change_callback=None):
             st.rerun()
 
 
+def get_balancer_ui_url(blockchain, pool_address, version=None):
+    """
+    Generate Balancer UI URL for a pool
+    
+    Args:
+        blockchain: Chain name (ethereum, arbitrum, polygon, etc.)
+        pool_address: Pool contract address / poolId
+        version: Pool version (2 or 3), optional - will auto-detect from address length
+        
+    Returns:
+        URL string to Balancer UI pool page
+    """
+    if pd.isna(pool_address) or not pool_address or str(pool_address).strip() == '':
+        return ''
+    
+    address = str(pool_address).strip()
+    
+    # Determine version from address length if not provided
+    # V3 pools: 42 characters (0x + 40 hex chars)
+    # V2 pools: 66 characters (0x + 64 hex chars - includes pool ID)
+    if version is None:
+        if len(address) > 42:
+            version = 2
+        else:
+            version = 3
+    
+    # Convert version to v2/v3 string
+    version_str = f"v{version}" if version in [2, 3] else "v2"
+    
+    # Use blockchain name directly (ethereum, arbitrum, etc.)
+    chain = str(blockchain).lower()
+    
+    return f"https://balancer.fi/pools/{chain}/{version_str}/{address}"
+
+
+def get_explorer_url(blockchain, address):
+    """
+    Generate block explorer URL for an address
+    
+    Args:
+        blockchain: Chain name (ethereum, arbitrum, polygon, etc.)
+        address: Contract address
+        
+    Returns:
+        URL string to block explorer
+    """
+    if pd.isna(address) or not address or str(address).strip() == '':
+        return ''
+    
+    # Map blockchain names to explorer URLs
+    explorer_map = {
+        'ethereum': 'https://etherscan.io/address',
+        'arbitrum': 'https://arbiscan.io/address',
+        'polygon': 'https://polygonscan.com/address',
+        'optimism': 'https://optimistic.etherscan.io/address',
+        'avalanche_c': 'https://snowtrace.io/address',
+        'avalanche': 'https://snowtrace.io/address',
+        'base': 'https://basescan.org/address',
+        'gnosis': 'https://gnosisscan.io/address',
+        'zkevm': 'https://zkevm.polygonscan.com/address'
+    }
+    
+    explorer_base = explorer_map.get(str(blockchain).lower(), 'https://etherscan.io/address')
+    addr = str(address).strip()
+    
+    return f"{explorer_base}/{addr}"
+
+
 def apply_version_filter(df, session_key='version_filter'):
     """
     Apply version filter to the dataframe

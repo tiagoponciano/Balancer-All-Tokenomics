@@ -516,7 +516,7 @@ with tab3:
     
     with col_filter1:
         # Search/filter
-        search_term = st.text_input("🔍 Search gauge", placeholder="Type to filter...", key="search_gauge")
+        search_term = st.text_input("🔍 Search gauge or address", placeholder="Type pool name or address...", key="search_gauge")
     
     with col_filter2:
         # Filter by minimum votes
@@ -530,9 +530,10 @@ with tab3:
     
     # Apply filters
     if search_term:
-        display_df = display_df[
-            display_df['symbol_clean'].str.contains(search_term, case=False, na=False)
-        ]
+        # Search by pool name OR pool address
+        mask_name = display_df['symbol_clean'].str.contains(search_term, case=False, na=False)
+        mask_address = display_df['gauge_address'].str.contains(search_term, case=False, na=False) if 'gauge_address' in display_df.columns else False
+        display_df = display_df[mask_name | mask_address]
     
     if min_votes > 0:
         display_df = display_df[display_df['votes'] >= min_votes]
