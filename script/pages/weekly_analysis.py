@@ -202,7 +202,7 @@ reduction_pct = st.sidebar.number_input(
     min_value=0.0,
     max_value=100.0,
     value=0.0,
-    step=5,
+    step=5.0,
     help="Enter the percentage reduction in BAL emissions (e.g., 50 means 50% reduction, keeping 50% of emissions). Start with 0 for baseline."
 )
 

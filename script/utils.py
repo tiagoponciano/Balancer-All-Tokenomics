@@ -2583,7 +2583,7 @@ def run_simulation_sidebar(df):
         min_value=0.0,
         max_value=100.0,
         value=0.0,
-        step=5,
+        step=5.0,
         help="Decrease BAL emission by this percentage (e.g. 50 = −50%)."
     )
     increase_pct = st.sidebar.number_input(
@@ -2591,7 +2591,7 @@ def run_simulation_sidebar(df):
         min_value=0.0,
         max_value=100.0,
         value=0.0,
-        step=5,
+        step=5.0,
         help="Increase BAL emission by this percentage (e.g. 20 = +20%)."
     )
     df_sim = df.copy()
