@@ -147,6 +147,8 @@ if 'pool_filter_mode_emission' not in st.session_state:
     st.session_state.pool_filter_mode_emission = 'all'  # Default: show all pools
 if 'version_filter_emission' not in st.session_state:
     st.session_state.version_filter_emission = 'all'  # Default: show all versions
+if 'gauge_filter_emission' not in st.session_state:
+    st.session_state.gauge_filter_emission = 'gauge'  # Default: show pools with gauge
 if 'show_core_percentage' not in st.session_state:
     st.session_state.show_core_percentage = False  # Default: show absolute values
 if 'show_legit_mercenary_percentage' not in st.session_state:
@@ -155,15 +157,21 @@ if 'show_legit_mercenary_percentage' not in st.session_state:
 # Version filter at the top of sidebar
 utils.show_version_filter('version_filter_emission')
 
+# Gauge filter (Gauge / No Gauge)
+utils.show_gauge_filter('gauge_filter_emission')
+
 # Pool filters at the top of sidebar (FIRST - before any other sidebar content)
 utils.show_pool_filters('pool_filter_mode_emission')
 
 # Date filter: Year + Quarter
-filter_year, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_emission")
-df = utils.apply_date_filter(df, filter_year, filter_quarter)
+filter_years, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_emission")
+df = utils.apply_date_filter(df, filter_years, filter_quarter)
 
 # Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_emission')
+
+# Apply gauge filter
+df = utils.apply_gauge_filter(df, 'gauge_filter_emission')
 
 if df.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")

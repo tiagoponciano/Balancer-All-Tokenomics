@@ -7,7 +7,7 @@ Merge based on:
 - block_date (veBAL) = day (votes_bribes_merged)
 - blockchain
 
-Removes rows where project_contract_address does not have gauge_address.
+Keeps all rows regardless of gauge_address presence (filtering can be done in the UI).
 """
 import pandas as pd
 from pathlib import Path
@@ -110,17 +110,10 @@ def create_final_dataset(
     
     print("\n🧹 Cleaning and preparing data...")
     
+    # Keep all rows - don't filter by gauge_address
+    # Users can filter by gauge_address presence in the Streamlit UI
     initial_vebal = len(vebal_df)
-    vebal_df = vebal_df[
-        vebal_df['gauge_address'].notna() & 
-        (vebal_df['gauge_address'] != '') &
-        (vebal_df['gauge_address'].astype(str).str.lower() != 'nan')
-    ]
-    removed = initial_vebal - len(vebal_df)
-    if removed > 0:
-        print(f"   Removed {removed:,} rows without gauge_address from veBAL")
-    
-    print(f"✅ veBAL after cleaning: {len(vebal_df):,} rows")
+    print(f"✅ veBAL after cleaning: {len(vebal_df):,} rows (all rows kept, including those without gauge_address)")
     
     # Define timezone removal function FIRST
     def remove_timezone(series):

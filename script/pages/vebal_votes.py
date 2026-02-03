@@ -223,18 +223,27 @@ if 'pool_filter_mode_votes' not in st.session_state:
 if 'version_filter_votes' not in st.session_state:
     st.session_state.version_filter_votes = 'all'  # Default: show all versions
 
+if 'gauge_filter_votes' not in st.session_state:
+    st.session_state.gauge_filter_votes = 'gauge'  # Default: show pools with gauge
+
 # Version filter at the top of sidebar
 utils.show_version_filter('version_filter_votes')
+
+# Gauge filter (with gauge / without gauge)
+utils.show_gauge_filter('gauge_filter_votes')
 
 # Pool filters at the top of sidebar (FIRST)
 utils.show_pool_filters('pool_filter_mode_votes')
 
 # Date filter: Year + Quarter (appears below Pool Selection)
-filter_year, filter_quarter = utils.show_date_filter_sidebar(df_main, key_prefix="date_filter_votes")
-df_main = utils.apply_date_filter(df_main, filter_year, filter_quarter)
+filter_years, filter_quarter = utils.show_date_filter_sidebar(df_main, key_prefix="date_filter_votes")
+df_main = utils.apply_date_filter(df_main, filter_years, filter_quarter)
 
 # Apply version filter
 df_main = utils.apply_version_filter(df_main, 'version_filter_votes')
+
+# Apply gauge filter
+df_main = utils.apply_gauge_filter(df_main, 'gauge_filter_votes')
 
 if df_main.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")

@@ -1590,6 +1590,76 @@ def apply_version_filter(df, session_key='version_filter'):
     return df
 
 
+def show_gauge_filter(session_key='gauge_filter', on_change_callback=None):
+    """
+    Display gauge address filter buttons in the sidebar
+    
+    Args:
+        session_key: Session state key for storing filter mode (default: 'gauge_filter')
+        on_change_callback: Optional callback function to call when filter changes
+    """
+    # Initialize session state
+    if session_key not in st.session_state:
+        st.session_state[session_key] = 'gauge'
+    
+    # Create filter container in sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🎯 Gauge Filter")
+    
+    col_btn1, col_btn2 = st.sidebar.columns(2)
+    
+    with col_btn1:
+        if st.button("Gauge", key=f"btn_gauge_{session_key}", use_container_width=True):
+            st.session_state[session_key] = 'gauge'
+            if on_change_callback:
+                on_change_callback()
+            st.rerun()
+    
+    with col_btn2:
+        if st.button("No Gauge", key=f"btn_no_gauge_{session_key}", use_container_width=True):
+            st.session_state[session_key] = 'no_gauge'
+            if on_change_callback:
+                on_change_callback()
+            st.rerun()
+
+
+def apply_gauge_filter(df, session_key='gauge_filter'):
+    """
+    Apply gauge address filter to the dataframe
+    
+    Args:
+        df: DataFrame to filter
+        session_key: Session state key for gauge filter
+        
+    Returns:
+        Filtered DataFrame
+    """
+    if df.empty or 'gauge_address' not in df.columns:
+        return df
+    
+    if session_key not in st.session_state:
+        st.session_state[session_key] = 'gauge'
+    
+    gauge_filter = st.session_state[session_key]
+    
+    if gauge_filter == 'gauge':
+        # Filter pools that have gauge_address (not null, not empty, not 'nan')
+        return df[
+            df['gauge_address'].notna() & 
+            (df['gauge_address'] != '') &
+            (df['gauge_address'].astype(str).str.lower() != 'nan')
+        ].copy()
+    elif gauge_filter == 'no_gauge':
+        # Filter pools that don't have gauge_address (null, empty, or 'nan')
+        return df[
+            df['gauge_address'].isna() | 
+            (df['gauge_address'] == '') |
+            (df['gauge_address'].astype(str).str.lower() == 'nan')
+        ].copy()
+    
+    return df
+
+
 def show_pool_filters(session_key='pool_filter_mode', on_change_callback=None):
     """
     Display pool filter buttons at the top of the sidebar
@@ -1643,8 +1713,8 @@ QUARTER_OPTIONS = [
 
 def show_date_filter_sidebar(df, key_prefix="date_filter"):
     """
-    Date filter in sidebar: Year (dropdown) and Quarter (only appears when a year is selected).
-    Returns (year, quarter_months): year int or None, quarter_months list of months or None.
+    Date filter in sidebar: Year (multi-select) and Quarter (multi-select).
+    Returns (years_list, quarter_months): list of year ints or None, list of months or None.
     """
     if df is None or df.empty or "block_date" not in df.columns:
         return None, None
@@ -1656,44 +1726,57 @@ def show_date_filter_sidebar(df, key_prefix="date_filter"):
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📅 Date Filter")
 
-    year_options = ["All"] + [str(y) for y in years]
-    selected_year = st.sidebar.selectbox(
-        "Year",
-        options=year_options,
-        key=f"{key_prefix}_year",
+    # Multi-select for years
+    selected_years = st.sidebar.multiselect(
+        "Year (select one or more)",
+        options=[str(y) for y in years],
+        default=[str(y) for y in years],  # Default to all years selected
+        key=f"{key_prefix}_year_multi",
     )
 
-    if selected_year == "All":
+    # If no years selected, return None (show all)
+    if not selected_years:
         return None, None
-
-    year_int = int(selected_year)
-    quarter_labels = [q[0] for q in QUARTER_OPTIONS]
-    selected_quarter = st.sidebar.selectbox(
-        "Quarter",
+    
+    years_list = [int(y) for y in selected_years]
+    
+    # Multi-select for quarters (excluding "All" option)
+    quarter_options_filtered = [q for q in QUARTER_OPTIONS if q[0] != "All"]
+    quarter_labels = [q[0] for q in quarter_options_filtered]
+    
+    selected_quarters = st.sidebar.multiselect(
+        "Quarter (select one or more)",
         options=quarter_labels,
-        key=f"{key_prefix}_quarter",
+        default=quarter_labels,  # Default to all quarters selected
+        key=f"{key_prefix}_quarter_multi",
     )
 
-    quarter_months = None
-    for label, months in QUARTER_OPTIONS:
-        if label == selected_quarter and months is not None:
-            quarter_months = months
-            break
+    # Aggregate months from all selected quarters
+    quarter_months = []
+    if selected_quarters:
+        for selected in selected_quarters:
+            for label, months in quarter_options_filtered:
+                if label == selected and months is not None:
+                    quarter_months.extend(months)
+        quarter_months = sorted(list(set(quarter_months))) if quarter_months else None
+    else:
+        # If no quarters selected, show all quarters
+        quarter_months = None
 
-    return year_int, quarter_months
+    return years_list, quarter_months
 
 
-def apply_date_filter(df, year, quarter_months):
+def apply_date_filter(df, years_list, quarter_months):
     """
-    Filter df by year and quarter (block_date).
-    year: int or None (all). quarter_months: list [1,2,3] or None (all).
+    Filter df by years and quarter (block_date).
+    years_list: list of ints or None (all). quarter_months: list [1,2,3] or None (all).
     """
-    if df is None or df.empty or (year is None and quarter_months is None):
+    if df is None or df.empty or (years_list is None and quarter_months is None):
         return df
     df = df.copy()
     dt = pd.to_datetime(df["block_date"], errors="coerce")
-    if year is not None:
-        df = df.loc[dt.dt.year == year]
+    if years_list is not None and len(years_list) > 0:
+        df = df.loc[dt.dt.year.isin(years_list)]
     if quarter_months is not None:
         df = df.loc[dt.dt.month.isin(quarter_months)]
     return df

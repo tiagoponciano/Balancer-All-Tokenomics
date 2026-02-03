@@ -58,6 +58,8 @@ if 'pool_filter_mode_bribes' not in st.session_state:
     st.session_state.pool_filter_mode_bribes = 'all'  # Default: show all pools
 if 'version_filter_bribes' not in st.session_state:
     st.session_state.version_filter_bribes = 'all'  # Default: show all versions
+if 'gauge_filter_bribes' not in st.session_state:
+    st.session_state.gauge_filter_bribes = 'gauge'  # Default: show pools with gauge
 if 'show_performance_by_pool' not in st.session_state:
     st.session_state.show_performance_by_pool = False
 if 'performance_page' not in st.session_state:
@@ -222,16 +224,23 @@ def reset_performance_view():
 # Version filter at the top of sidebar
 utils.show_version_filter('version_filter_bribes', on_change_callback=reset_performance_view)
 
+# Gauge filter (Gauge / No Gauge)
+utils.show_gauge_filter('gauge_filter_bribes', on_change_callback=reset_performance_view)
+
 utils.show_pool_filters('pool_filter_mode_bribes', on_change_callback=reset_performance_view)
 
 # Date filter: Year + Quarter (applies before pool display so data is filtered by period)
-filter_year, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_bribes")
-df = utils.apply_date_filter(df, filter_year, filter_quarter)
-df_bribes = utils.apply_date_filter(df_bribes, filter_year, filter_quarter)
+filter_years, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_bribes")
+df = utils.apply_date_filter(df, filter_years, filter_quarter)
+df_bribes = utils.apply_date_filter(df_bribes, filter_years, filter_quarter)
 
 # Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_bribes')
 df_bribes = utils.apply_version_filter(df_bribes, 'version_filter_bribes')
+
+# Apply gauge filter
+df = utils.apply_gauge_filter(df, 'gauge_filter_bribes')
+df_bribes = utils.apply_gauge_filter(df_bribes, 'gauge_filter_bribes')
 
 if df.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")

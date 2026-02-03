@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-SCRIPT_DIR = Path(__file__).parent / "script"
+SCRIPT_DIR = Path(__file__).parent / "service"
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from dune_fetcher import fetch_and_save

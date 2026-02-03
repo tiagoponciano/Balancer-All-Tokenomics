@@ -149,18 +149,27 @@ if 'pool_filter_mode_weekly' not in st.session_state:
 if 'version_filter_weekly' not in st.session_state:
     st.session_state.version_filter_weekly = 'all'  # Default: show all versions
 
+if 'gauge_filter_weekly' not in st.session_state:
+    st.session_state.gauge_filter_weekly = 'gauge'  # Default: show pools with gauge
+
 # Version filter at the top of sidebar
 utils.show_version_filter('version_filter_weekly')
+
+# Gauge filter (Gauge / No Gauge)
+utils.show_gauge_filter('gauge_filter_weekly')
 
 # Pool filters at the top of sidebar (FIRST - before any other sidebar content)
 utils.show_pool_filters('pool_filter_mode_weekly')
 
 # Date filter: Year + Quarter
-filter_year, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_weekly")
-df = utils.apply_date_filter(df, filter_year, filter_quarter)
+filter_years, filter_quarter = utils.show_date_filter_sidebar(df, key_prefix="date_filter_weekly")
+df = utils.apply_date_filter(df, filter_years, filter_quarter)
 
 # Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_weekly')
+
+# Apply gauge filter
+df = utils.apply_gauge_filter(df, 'gauge_filter_weekly')
 
 if df.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")
