@@ -217,7 +217,7 @@ help_dao = (
     "4. Multiply by emission factor: (1 − Decrease %) × (1 + Increase %)"
 )
 help_holders = (
-    "Revenue allocated to veBAL/BAL holders.\n\n"
+    "Revenue allocated to veBAL Holders.\n\n"
     "**How it is calculated:**\n"
     "1. Remaining revenue = Total protocol fee − (Protocol fee % from sidebar)\n"
     "2. Per pool: Holders Share % (sidebar) × remaining revenue\n"
