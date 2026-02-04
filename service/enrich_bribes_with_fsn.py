@@ -3,12 +3,15 @@
 Script to enrich Bribes_enriched.csv with missing blockchain and gauge_address from FSN_data.csv
 
 Matching logic:
-- Compare pool_id/derived_pool_address from Bribes_enriched with poolId from FSN_data
+- Bidirectional matching: pool_id <-> gauge_address
 - Use first 42 characters for matching (Ethereum address standard)
-- Fill missing blockchain (chain) and gauge_address (id) where there's a match
+- Fill missing blockchain (chain), gauge_address (id), and pool_id where there's a match
+- SUPPORT FOR MULTIPLE GAUGES: If a pool has multiple gauges, we store the candidate gauges
+  as a list-like JSON string in gauge_address so downstream merge logic can resolve the match.
 """
 import pandas as pd
 import os
+import json
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -16,7 +19,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 
 BRIBES_ENRICHED_FILE = DATA_DIR / "Bribes_enriched.csv"
 FSN_DATA_FILE = DATA_DIR / "FSN_data.csv"
-OUTPUT_FILE = DATA_DIR / "Bribes_enriched.csv"  # Overwrite the enriched file
+OUTPUT_FILE = DATA_DIR / "Bribes_enriched.csv"
 
 
 def normalize_address(addr):
@@ -38,18 +41,14 @@ def extract_base_address(address_str):
 
 def enrich_bribes_with_fsn():
     """
-    Enriches Bribes_enriched.csv with missing blockchain and gauge_address from FSN_data.csv
+    Enriches Bribes_enriched.csv with missing blockchain, gauge_address, and pool_id from FSN_data.csv
     """
     print("=" * 70)
-    print("Enriching Bribes with FSN Data")
+    print("Enriching Bribes with FSN Data (Bidirectional with Multi-Gauge Support)")
     print("=" * 70)
-    
-    # 1. Load files
-    print("\n1. Loading CSV files...")
     
     if not BRIBES_ENRICHED_FILE.exists():
         raise FileNotFoundError(f"File not found: {BRIBES_ENRICHED_FILE}")
-    
     if not FSN_DATA_FILE.exists():
         raise FileNotFoundError(f"File not found: {FSN_DATA_FILE}")
     
@@ -59,153 +58,125 @@ def enrich_bribes_with_fsn():
     print(f"   ✓ Bribes_enriched: {len(bribes_df)} records")
     print(f"   ✓ FSN_data: {len(fsn_df)} records")
     
-    # 2. Analyze missing data
-    print("\n2. Analyzing missing data in Bribes_enriched...")
+    # 1. Create lookups from FSN_data
+    print("\n1. Creating lookup indexes from FSN_data...")
     
-    missing_blockchain = bribes_df['blockchain'].isna().sum() + (bribes_df['blockchain'] == '').sum()
-    missing_gauge = bribes_df['gauge_address'].isna().sum() + (bribes_df['gauge_address'] == '').sum()
-    
-    print(f"   - Missing blockchain: {missing_blockchain} records")
-    print(f"   - Missing gauge_address: {missing_gauge} records")
-    
-    if missing_blockchain == 0 and missing_gauge == 0:
-        print("   ✓ No missing data detected!")
-        return bribes_df
-    
-    # 3. Create lookup index from FSN_data
-    print("\n3. Creating lookup index from FSN_data...")
-    print("   - Extracting first 42 characters from poolId...")
-    
-    # Create lookup dictionary: {base_address_42: [fsn_records]}
-    fsn_lookup = {}
+    # pool_to_gauge: {pool_42: [records]}
+    pool_to_gauge = {}
+    # gauge_to_pool: {gauge_address: record}
+    gauge_to_pool = {}
     
     for _, row in fsn_df.iterrows():
         pool_id = row.get('poolId')
+        gauge_id = row.get('id')
+        chain = row.get('chain')
+        status = row.get('status')
+        
         if pd.notna(pool_id):
-            base_addr = extract_base_address(pool_id)
-            if base_addr:
-                if base_addr not in fsn_lookup:
-                    fsn_lookup[base_addr] = []
-                
-                fsn_lookup[base_addr].append({
-                    'gauge_address': row.get('id'),
-                    'blockchain': row.get('chain'),
-                    'status': row.get('status'),
-                    'poolId': pool_id
-                })
+            p42 = extract_base_address(pool_id)
+            if p42 not in pool_to_gauge: pool_to_gauge[p42] = []
+            pool_to_gauge[p42].append({'id': gauge_id, 'chain': chain, 'status': status, 'poolId': pool_id})
+            
+        if pd.notna(gauge_id):
+            g_addr = normalize_address(gauge_id)
+            gauge_to_pool[g_addr] = {'poolId': pool_id, 'chain': chain, 'status': status, 'id': gauge_id}
+
+    # 2. Fill missing data (with expansion support)
+    print("\n2. Filling missing data and handling multiple gauges...")
     
-    print(f"   ✓ Created lookup with {len(fsn_lookup)} unique pool addresses (42 chars)")
+    filled_count = 0
     
-    # 4. Fill missing data
-    print("\n4. Filling missing blockchain and gauge_address...")
-    
-    filled_blockchain = 0
-    filled_gauge = 0
-    matched_pools = set()
+    # Flag to track if we expanded this row
+    bribes_df['is_derived_gauge'] = False
+    # Preserve original gauge if we later replace with a list of candidates
+    if 'gauge_address_original' not in bribes_df.columns:
+        bribes_df['gauge_address_original'] = bribes_df.get('gauge_address')
+    # Add a temporary unique ID to track expansions
+    bribes_df['temp_row_id'] = range(len(bribes_df))
     
     for idx, row in bribes_df.iterrows():
-        # Get pool identifiers from bribes
         pool_id = row.get('pool_id')
-        derived_address = row.get('derived_pool_address')
+        gauge_addr = row.get('gauge_address')
+        blockchain = row.get('blockchain')
         
-        # Try to get base address (first 42 chars)
-        base_addr = None
+        match = None
+        matches = []
+        p42 = None
         if pd.notna(pool_id) and pool_id != '':
-            base_addr = extract_base_address(pool_id)
+            p42 = extract_base_address(pool_id)
+        elif pd.notna(row.get('derived_pool_address')) and row.get('derived_pool_address') != '':
+            p42 = extract_base_address(row.get('derived_pool_address'))
         
-        if not base_addr and pd.notna(derived_address) and derived_address != '':
-            base_addr = extract_base_address(derived_address)
-        
-        # If we have a base address and it exists in FSN data
-        if base_addr and base_addr in fsn_lookup:
-            fsn_matches = fsn_lookup[base_addr]
-            matched_pools.add(base_addr)
+        # Scenario A: We have a gauge address. Verify/Fill details.
+        if pd.notna(gauge_addr) and gauge_addr != '':
+            g_norm = normalize_address(gauge_addr)
+            if g_norm in gauge_to_pool:
+                match = gauge_to_pool[g_norm]
+                
+                # Apply updates in place
+                updated = False
+                if pd.isna(pool_id) or pool_id == '':
+                    bribes_df.at[idx, 'pool_id'] = match['poolId']
+                    updated = True
+                if pd.isna(blockchain) or blockchain == '':
+                    bribes_df.at[idx, 'blockchain'] = match['chain']
+                    updated = True
+                if updated:
+                    filled_count += 1
+            # We still want to check if this pool has multiple gauges
+            # so we can store the candidate list.
+            if not p42 and match and pd.notna(match.get('poolId')):
+                p42 = extract_base_address(match.get('poolId'))
             
-            # Prefer active gauges
-            fsn_record = None
-            for match in fsn_matches:
-                if match.get('status', '').upper() == 'ACTIVE':
-                    fsn_record = match
-                    break
-            
-            # If no active, take first one
-            if not fsn_record:
-                fsn_record = fsn_matches[0]
-            
-            # Fill missing blockchain
-            current_blockchain = row.get('blockchain')
-            if pd.isna(current_blockchain) or current_blockchain == '':
-                if pd.notna(fsn_record.get('blockchain')):
-                    bribes_df.at[idx, 'blockchain'] = fsn_record['blockchain']
-                    filled_blockchain += 1
-            
-            # Fill missing gauge_address
-            current_gauge = row.get('gauge_address')
-            if pd.isna(current_gauge) or current_gauge == '':
-                if pd.notna(fsn_record.get('gauge_address')):
-                    bribes_df.at[idx, 'gauge_address'] = fsn_record['gauge_address']
-                    filled_gauge += 1
+        if p42 and p42 in pool_to_gauge:
+            matches = pool_to_gauge[p42]
+
+            if len(matches) == 1:
+                # Single match: Update in place (only if missing)
+                match = matches[0]
+                if pd.isna(gauge_addr) or gauge_addr == '':
+                    bribes_df.at[idx, 'gauge_address'] = match['id']
+                if pd.isna(pool_id) or pool_id == '':
+                    bribes_df.at[idx, 'pool_id'] = match['poolId']
+                if pd.isna(blockchain) or blockchain == '':
+                    bribes_df.at[idx, 'blockchain'] = match['chain']
+                filled_count += 1
+
+            else:
+                # Multiple matches: store candidate gauges as a list-like JSON string
+                gauge_candidates = [m['id'] for m in matches if pd.notna(m.get('id'))]
+                status_candidates = [m.get('status', 'UNKNOWN') for m in matches]
+
+                # Preserve original gauge in case it helps resolve later
+                bribes_df.at[idx, 'gauge_address_original'] = gauge_addr
+                bribes_df.at[idx, 'gauge_address'] = json.dumps(gauge_candidates)
+                bribes_df.at[idx, 'gauge_status'] = json.dumps(status_candidates)
+                bribes_df.at[idx, 'is_derived_gauge'] = True
+
+                if pd.isna(pool_id) or pool_id == '':
+                    bribes_df.at[idx, 'pool_id'] = matches[0].get('poolId')
+                if pd.isna(blockchain) or blockchain == '':
+                    bribes_df.at[idx, 'blockchain'] = matches[0].get('chain')
+                filled_count += 1
+
+    print(f"   ✓ Performed {filled_count} data fills/corrections (including expansions)")
     
-    print(f"   ✓ Filled {filled_blockchain} missing blockchain values")
-    print(f"   ✓ Filled {filled_gauge} missing gauge_address values")
-    print(f"   ✓ Matched {len(matched_pools)} unique pools with FSN data")
+    # Ensure pool_42 exists for downstream processing
+    print("   + Updating/Creating pool_42 column...")
+    bribes_df['pool_42'] = bribes_df['pool_id'].apply(extract_base_address)
     
-    # 5. Final statistics
-    print("\n5. Final statistics:")
-    
-    remaining_missing_blockchain = bribes_df['blockchain'].isna().sum() + (bribes_df['blockchain'] == '').sum()
-    remaining_missing_gauge = bribes_df['gauge_address'].isna().sum() + (bribes_df['gauge_address'] == '').sum()
-    
-    print(f"   - Total records: {len(bribes_df)}")
-    print(f"   - Records with blockchain: {len(bribes_df) - remaining_missing_blockchain}")
-    print(f"   - Records with gauge_address: {len(bribes_df) - remaining_missing_gauge}")
-    print(f"   - Still missing blockchain: {remaining_missing_blockchain}")
-    print(f"   - Still missing gauge_address: {remaining_missing_gauge}")
-    
-    if remaining_missing_blockchain > 0 or remaining_missing_gauge > 0:
-        print("\n   ⚠️  Some records still missing data (no match found in FSN_data)")
-    
-    # 6. Save enriched file
-    print(f"\n6. Saving enriched file...")
-    print(f"   - {OUTPUT_FILE}")
-    
+    # 3. Save enriched file
     bribes_df.to_csv(OUTPUT_FILE, index=False)
-    print(f"   ✓ File saved successfully!")
-    
-    print("\n" + "=" * 70)
-    print("Enrichment completed!")
-    print("=" * 70)
-    print(f"\nSummary:")
-    print(f"  - Blockchain filled: {filled_blockchain}")
-    print(f"  - Gauge addresses filled: {filled_gauge}")
-    print(f"  - Pools matched with FSN: {len(matched_pools)}")
-    print(f"  - Output file: {OUTPUT_FILE}")
+    print(f"   ✓ Saved to {OUTPUT_FILE}")
     
     return bribes_df
 
 
-def main():
-    """
-    Main function to execute the enrichment process.
-    
-    Returns:
-        DataFrame with enriched bribe data
-        
-    Raises:
-        FileNotFoundError: If input files don't exist
-    """
+if __name__ == "__main__":
     try:
-        result_df = enrich_bribes_with_fsn()
-        print("\n" + "=" * 70)
-        print("✅ Process completed successfully!")
-        print("=" * 70)
-        return result_df
+        enrich_bribes_with_fsn()
+        print("\n✅ Enrichment completed successfully!")
     except Exception as e:
-        print(f"\n❌ Error during processing: {e}")
+        print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
-        raise
-
-
-if __name__ == "__main__":
-    main()
