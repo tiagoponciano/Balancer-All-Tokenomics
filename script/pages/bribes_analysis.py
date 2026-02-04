@@ -27,7 +27,74 @@ try:
         st.stop()
 
     df_bribes = df.copy()
-    df_bribes["gauge_address"] = df_bribes["project_contract_address"].fillna("").astype(str)
+    # Fill missing pool_symbol so bribes from unknown pools are not dropped in groupby
+    df_bribes["pool_symbol"] = (
+        df_bribes["pool_symbol"]
+        .fillna(df_bribes["project_contract_address"])
+        .replace("", pd.NA)
+    )
+
+    # Séries auxiliares (nem sempre existem)
+    pool_name_series = df_bribes.get("pool_name")
+    if pool_name_series is None:
+        pool_name_series = df_bribes["pool_symbol"]
+
+    pool_title_series = df_bribes.get("pool_title")
+    if pool_title_series is None:
+        pool_title_series = df_bribes["pool_symbol"]
+
+    # 👉 Regra principal:
+    # se pool_symbol estiver vazio, usar pool_name, depois pool_title, depois contract
+    df_bribes["pool_symbol"] = (
+        df_bribes["pool_symbol"]
+        .fillna(pool_name_series)
+        .fillna(pool_title_series)
+        .fillna(df_bribes["project_contract_address"])
+    )
+
+    # If pool_symbol is a URL, prefer pool_name (or pool_title) for display
+    is_url = df_bribes["pool_symbol"].astype(str).str.startswith(("http://", "https://")) | \
+            df_bribes["pool_symbol"].astype(str).str.contains("balancer.fi/pools", na=False)
+
+    # Se for URL, usar nome amigável
+    df_bribes["pool_symbol"] = df_bribes["pool_symbol"].mask(
+        is_url,
+        pool_name_series.fillna(pool_title_series).fillna(df_bribes["project_contract_address"])
+    )
+    # Sanitize any residual URL-like values in pool name/title to avoid links in UI
+    def _strip_url(val, fallback):
+        s = str(val)
+        if s.startswith(("http://", "https://")) or "balancer.fi/pools" in s:
+            return fallback
+        return val
+    df_bribes["pool_symbol"] = df_bribes.apply(
+        lambda r: _strip_url(r.get("pool_symbol"), r.get("project_contract_address")),
+        axis=1
+    )
+    if "pool_title" in df_bribes.columns:
+        df_bribes["pool_title"] = df_bribes.apply(
+            lambda r: _strip_url(r.get("pool_title"), r.get("pool_symbol")),
+            axis=1
+        )
+    if "pool_name" in df_bribes.columns:
+        df_bribes["pool_name"] = df_bribes.apply(
+            lambda r: _strip_url(r.get("pool_name"), r.get("pool_symbol")),
+            axis=1
+        )
+    # Helper: ensure we always have a human-readable label (never a URL)
+    def _safe_pool_label(row):
+        for key in ["pool_name", "pool_title", "pool_symbol"]:
+            val = row.get(key)
+            if pd.notna(val) and str(val).strip() != "":
+                s = str(val)
+                if s.startswith(("http://", "https://")) or "balancer.fi/pools" in s:
+                    continue
+                return s
+        return row.get("project_contract_address")
+    if "gauge_address" in df_bribes.columns:
+        df_bribes["gauge_address"] = df_bribes["gauge_address"].fillna(df_bribes["project_contract_address"]).astype(str)
+    else:
+        df_bribes["gauge_address"] = df_bribes["project_contract_address"].fillna("").astype(str)
     df_bribes["pool_title"] = df_bribes["pool_symbol"].fillna("")
     df_bribes["pool_name"] = df_bribes["pool_symbol"].fillna("")
     df_bribes["vebal_votes"] = df_bribes["votes_received"]
@@ -376,6 +443,11 @@ try:
         for c in ['pool_title', 'pool_name']:
             if c in df_bribes_display.columns:
                 agg_dict[c] = 'first'
+        # Preserve gauge_address and pool_type for display
+        if 'gauge_address' in df_bribes_display.columns:
+            agg_dict['gauge_address'] = 'first'
+        if 'pool_type' in df_bribes_display.columns:
+            agg_dict['pool_type'] = 'first'
 
         # Calculate metrics - aggregate by pool
         if pool_col and pool_col in df_bribes_display.columns:
@@ -457,7 +529,7 @@ st.markdown("### 🏆 Pool Rankings")
 all_pools_for_ranking = None
 if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in pool_bribes.columns:
     # Get additional columns: blockchain, gauge_address, version
-    cols_to_include = [pool_col, "pool_title", "pool_name", bribe_col]
+    cols_to_include = [pool_col, "pool_title", "pool_name", "pool_type", bribe_col]
     if "blockchain" in pool_bribes.columns:
         cols_to_include.append("blockchain")
     if "gauge_address" in pool_bribes.columns:
@@ -467,6 +539,17 @@ if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in po
     
     rr = pool_bribes[cols_to_include].copy()
     rr = rr.rename(columns={pool_col: "pool", bribe_col: "bribe_amount"})
+    # Sanitize any URL-like pool labels before display
+    def _sanitize_pool_label(val, fallback):
+        s = str(val)
+        if s.startswith(("http://", "https://")) or "balancer.fi/pools" in s:
+            return fallback
+        return val
+    rr["pool"] = rr.apply(lambda r: _sanitize_pool_label(r.get("pool"), r.get("gauge_address") or r.get("project_contract_address") or r.get("pool")), axis=1)
+    if "pool_title" in rr.columns:
+        rr["pool_title"] = rr.apply(lambda r: _sanitize_pool_label(r.get("pool_title"), r.get("pool")), axis=1)
+    if "pool_name" in rr.columns:
+        rr["pool_name"] = rr.apply(lambda r: _sanitize_pool_label(r.get("pool_name"), r.get("pool")), axis=1)
     rr["pool_title"] = rr.get("pool_title", rr["pool"]).fillna(rr["pool"])
     rr["pool_name"] = rr.get("pool_name", rr["pool"]).fillna(rr["pool"])
     
@@ -560,12 +643,15 @@ with tab1:
         display_df = ranking_df.copy()
         
         if 'balancer_url' in display_df.columns:
-            display_df['pool_display'] = display_df.apply(
-                lambda row: f"{row['balancer_url']}?label={row['pool']}" if pd.notna(row.get('balancer_url')) and row['balancer_url'] else row['pool'], 
+            display_df['pool_label'] = display_df.apply(_safe_pool_label, axis=1)
+            display_df['pool_link'] = display_df.apply(
+                lambda row: f"{row['balancer_url']}?label={row['pool_label']}"
+                if pd.notna(row.get('balancer_url')) and row['balancer_url'] else row['pool_label'],
                 axis=1
             )
         else:
-            display_df['pool_display'] = display_df['pool']
+            display_df['pool_label'] = display_df.apply(_safe_pool_label, axis=1)
+            display_df['pool_link'] = display_df['pool_label']
 
         if 'blockchain' in display_df.columns:
             if 'explorer_url' in display_df.columns:
@@ -575,17 +661,45 @@ with tab1:
                 )
             else:
                 display_df['chain_display'] = display_df['blockchain']
+
+        # Address link (gauge_address) with short label
+        def _short_addr(val):
+            s = str(val)
+            if s.startswith("0x") and len(s) > 10:
+                return f"{s[:4]}...{s[-4:]}"
+            return s
+        if 'gauge_address' in display_df.columns and 'explorer_url' in display_df.columns:
+            display_df['address_display'] = display_df.apply(
+                lambda row: f"{row['explorer_url']}?label={_short_addr(row['gauge_address'])}"
+                if pd.notna(row.get('explorer_url')) and row.get('explorer_url') else _short_addr(row.get('gauge_address')),
+                axis=1
+            )
+
+        # Address link (gauge_address) with short label
+        def _short_addr(val):
+            s = str(val)
+            if s.startswith("0x") and len(s) > 10:
+                return f"{s[:4]}...{s[-4:]}"
+            return s
+        if 'gauge_address' in display_df.columns and 'explorer_url' in display_df.columns:
+            display_df['address_display'] = display_df.apply(
+                lambda row: f"{row['explorer_url']}?label={_short_addr(row['gauge_address'])}"
+                if pd.notna(row.get('explorer_url')) and row.get('explorer_url') else _short_addr(row.get('gauge_address')),
+                axis=1
+            )
         
         display_df['Total Bribes (USD)'] = display_df['Total Bribes (USD)'].apply(
             lambda x: f"${float(x):,.0f}" if pd.notna(x) and float(x) > 0 else "$0"
         )
 
-        final_cols = ['pool_display']
+        final_cols = ['pool_link']
         final_names = ['Pool']
-        
         if 'chain_display' in display_df.columns:
             final_cols.append('chain_display')
             final_names.append('Chain')
+        if 'pool_type' in display_df.columns:
+            final_cols.append('pool_type')
+            final_names.append('Pool Type')
             
         if 'version_display' in display_df.columns:
             final_cols.append('version_display')
@@ -594,8 +708,8 @@ with tab1:
         final_cols.append('Total Bribes (USD)')
         final_names.append('Total Bribes (USD)')
 
-        if 'gauge_address' in display_df.columns:
-            final_cols.append('gauge_address')
+        if 'address_display' in display_df.columns:
+            final_cols.append('address_display')
             final_names.append('Address')
 
         df_show = display_df[final_cols].copy()
@@ -604,20 +718,25 @@ with tab1:
         column_config = {}
         
         column_config['Pool'] = st.column_config.LinkColumn(
-            'Pool', 
+            'Pool',
             width='medium',
-            display_text=r"label=(.*)" 
-        )
-        
+            display_text=r"label=(.*)"
+            )
         if 'Chain' in df_show.columns:
             column_config['Chain'] = st.column_config.LinkColumn(
                 'Chain', 
                 width='small',
                 display_text=r"label=(.*)" 
             )
+        if 'Pool Type' in df_show.columns:
+            column_config['Pool Type'] = st.column_config.TextColumn('Pool Type', width='small')
             
         if 'Address' in df_show.columns:
-            column_config['Address'] = st.column_config.TextColumn('Address', width='small')
+            column_config['Address'] = st.column_config.LinkColumn(
+                'Address',
+                width='small',
+                display_text=r"label=(.*)"
+            )
 
         st.dataframe(
             df_show, 
@@ -722,11 +841,11 @@ with tab2:
 
         if 'balancer_url' in display_df.columns:
             display_df['pool_display'] = display_df.apply(
-                lambda row: f"{row['balancer_url']}?label={row['pool']}" if pd.notna(row.get('balancer_url')) and row['balancer_url'] else row['pool'], 
+                lambda row: f"{row['balancer_url']}?label={_safe_pool_label(row)}" if pd.notna(row.get('balancer_url')) and row['balancer_url'] else _safe_pool_label(row), 
                 axis=1
             )
         else:
-            display_df['pool_display'] = display_df['pool']
+            display_df['pool_display'] = display_df.apply(_safe_pool_label, axis=1)
 
         if 'blockchain' in display_df.columns:
             if 'explorer_url' in display_df.columns:
@@ -753,6 +872,9 @@ with tab2:
         if 'chain_display' in display_df.columns:
             final_cols.append('chain_display')
             final_names.append('Chain')
+        if 'pool_type' in display_df.columns:
+            final_cols.append('pool_type')
+            final_names.append('Pool Type')
             
         if 'version_display' in display_df.columns:
             final_cols.append('version_display')
@@ -761,8 +883,8 @@ with tab2:
         final_cols.extend(['veBAL Votes', 'Vote Share %', 'Ranking'])
         final_names.extend(['veBAL Votes', 'Vote Share %', 'Ranking'])
         
-        if 'gauge_address' in display_df.columns:
-            final_cols.append('gauge_address')
+        if 'address_display' in display_df.columns:
+            final_cols.append('address_display')
             final_names.append('Address')
         
         df_show = display_df[final_cols].copy()
@@ -781,9 +903,15 @@ with tab2:
                 width='small',
                 display_text=r"label=(.*)"
             )
+        if 'Pool Type' in df_show.columns:
+            column_config['Pool Type'] = st.column_config.TextColumn('Pool Type', width='small')
             
         if 'Address' in df_show.columns:
-            column_config['Address'] = st.column_config.TextColumn('Address', width='small')
+            column_config['Address'] = st.column_config.LinkColumn(
+                'Address', 
+                width='small',
+                display_text=r"label=(.*)"
+            )
         
         st.dataframe(
             df_show, 
