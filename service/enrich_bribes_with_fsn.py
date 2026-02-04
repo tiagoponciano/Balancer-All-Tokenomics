@@ -72,11 +72,19 @@ def enrich_bribes_with_fsn():
         print("   ✓ No missing data detected!")
         return bribes_df
     
-    # 3. Create lookup index from FSN_data
+    # 3. Create lookup index from FSN_data (prefer ACTIVE gauges)
     print("\n3. Creating lookup index from FSN_data...")
     print("   - Extracting first 42 characters from poolId...")
+    print("   - Prioritizing ACTIVE gauges over KILLED ones...")
     
     # Create lookup dictionary: {base_address_42: [fsn_records]}
+    # Sort by status to ensure ACTIVE comes first
+    fsn_df['status_priority'] = fsn_df['status'].map({
+        'ACTIVE': 1,
+        'KILLED': 2
+    }).fillna(3)
+    fsn_df = fsn_df.sort_values('status_priority')
+    
     fsn_lookup = {}
     
     for _, row in fsn_df.iterrows():
@@ -94,7 +102,9 @@ def enrich_bribes_with_fsn():
                     'poolId': pool_id
                 })
     
+    active_count = sum(1 for records in fsn_lookup.values() if any(r.get('status') == 'ACTIVE' for r in records))
     print(f"   ✓ Created lookup with {len(fsn_lookup)} unique pool addresses (42 chars)")
+    print(f"   ✓ {active_count} pools with ACTIVE gauges")
     
     # 4. Fill missing data AND correct wrong gauge addresses
     print("\n4. Filling missing blockchain and correcting gauge_address...")

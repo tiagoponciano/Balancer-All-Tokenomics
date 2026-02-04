@@ -274,106 +274,17 @@ def create_final_dataset(
         vebal_df = vebal_df.drop(columns=cols_to_remove)
     
     print("\n🔗 Merging data...")
-    print("   Strategy: Two-step merge (exact match + fuzzy date matching)")
     print("   Match keys: gauge_address, block_date, blockchain")
     
-    # STEP 1: Try exact date match first
-    print("\n   Step 1: Exact date match...")
     merged_df = pd.merge(
         vebal_df,
         votes_bribes_df,
         on=['gauge_address', 'block_date', 'blockchain'],
         how='left',
-        suffixes=('', '_votes_bribes'),
-        indicator=True
+        suffixes=('', '_votes_bribes')
     )
     
-    exact_matched = (merged_df['_merge'] == 'both').sum()
-    print(f"   ✅ Exact matches: {exact_matched:,} rows")
-    
-    # STEP 2: For unmatched rows with gauges, try fuzzy date match (±7 days)
-    print("\n   Step 2: Fuzzy date match (±7 days) for unmatched rows...")
-    
-    unmatched_mask = (merged_df['_merge'] == 'left_only') & merged_df['gauge_address'].notna() & (merged_df['gauge_address'] != '')
-    unmatched_rows = merged_df[unmatched_mask].copy()
-    
-    if len(unmatched_rows) > 0:
-        print(f"   Processing {len(unmatched_rows):,} unmatched rows...")
-        
-        # Create a lookup for bribes
-        bribes_lookup = votes_bribes_df[
-            votes_bribes_df['bribe_amount_usd'].notna() |
-            votes_bribes_df['bal_emited_votes'].notna() |
-            votes_bribes_df['votes_received'].notna()
-        ].copy()
-        
-        fuzzy_matched = 0
-        fuzzy_bribes_recovered = 0.0
-        
-        # Process in batches for efficiency
-        for gauge in unmatched_rows['gauge_address'].unique():
-            if pd.isna(gauge) or gauge == '' or str(gauge).lower() == 'nan':
-                continue
-            
-            # Get all unmatched veBAL rows for this gauge
-            vebal_gauge_mask = unmatched_mask & (merged_df['gauge_address'] == gauge)
-            vebal_gauge_rows = merged_df[vebal_gauge_mask]
-            
-            if len(vebal_gauge_rows) == 0:
-                continue
-            
-            # Get all bribes for this gauge+blockchain combo
-            for blockchain in vebal_gauge_rows['blockchain'].unique():
-                if pd.isna(blockchain) or blockchain == '':
-                    continue
-                
-                bribes_for_gauge = bribes_lookup[
-                    (bribes_lookup['gauge_address'] == gauge) &
-                    (bribes_lookup['blockchain'] == blockchain)
-                ]
-                
-                if len(bribes_for_gauge) == 0:
-                    continue
-                
-                # For each veBAL row, find the nearest bribe within 7 days
-                vebal_blockchain_mask = vebal_gauge_mask & (merged_df['blockchain'] == blockchain)
-                
-                for idx in merged_df[vebal_blockchain_mask].index:
-                    vebal_date = merged_df.loc[idx, 'block_date']
-                    
-                    if pd.isna(vebal_date):
-                        continue
-                    
-                    # Calculate date differences (use copy to avoid SettingWithCopyWarning)
-                    bribes_with_diff = bribes_for_gauge.copy()
-                    bribes_with_diff['date_diff'] = abs((bribes_with_diff['block_date'] - vebal_date).dt.days)
-                    
-                    # Find bribes within 7 days
-                    within_window = bribes_with_diff[bribes_with_diff['date_diff'] <= 7]
-                    
-                    if len(within_window) > 0:
-                        # Use the closest match
-                        closest = within_window.nsmallest(1, 'date_diff').iloc[0]
-                        
-                        # Fill in the data
-                        if 'bribe_amount_usd' in closest and pd.notna(closest['bribe_amount_usd']):
-                            merged_df.loc[idx, 'bribe_amount_usd'] = closest['bribe_amount_usd']
-                            fuzzy_bribes_recovered += closest['bribe_amount_usd']
-                        if 'bal_emited_votes' in closest and pd.notna(closest['bal_emited_votes']):
-                            merged_df.loc[idx, 'bal_emited_votes'] = closest['bal_emited_votes']
-                        if 'votes_received' in closest and pd.notna(closest['votes_received']):
-                            merged_df.loc[idx, 'votes_received'] = closest['votes_received']
-                        
-                        fuzzy_matched += 1
-        
-        print(f"   ✅ Fuzzy matches: {fuzzy_matched:,} rows")
-        if fuzzy_bribes_recovered > 0:
-            print(f"   💰 Bribes recovered: ${fuzzy_bribes_recovered:,.2f}")
-    
-    # Remove merge indicator
-    merged_df = merged_df.drop(columns=['_merge'])
-    
-    print(f"\n✅ Merge completed: {len(merged_df):,} rows")
+    print(f"✅ Merge completed: {len(merged_df):,} rows")
     
     matched_count = merged_df['bal_emited_votes'].notna().sum() if 'bal_emited_votes' in merged_df.columns else 0
     unmatched_count = len(merged_df) - matched_count
