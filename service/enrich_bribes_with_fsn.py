@@ -96,25 +96,34 @@ def enrich_bribes_with_fsn():
     
     print(f"   ✓ Created lookup with {len(fsn_lookup)} unique pool addresses (42 chars)")
     
-    # 4. Fill missing data
-    print("\n4. Filling missing blockchain and gauge_address...")
+    # 4. Fill missing data AND correct wrong gauge addresses
+    print("\n4. Filling missing blockchain and correcting gauge_address...")
     
     filled_blockchain = 0
     filled_gauge = 0
+    corrected_gauge = 0
     matched_pools = set()
     
     for idx, row in bribes_df.iterrows():
         # Get pool identifiers from bribes
         pool_id = row.get('pool_id')
         derived_address = row.get('derived_pool_address')
+        current_gauge = row.get('gauge_address')
         
-        # Try to get base address (first 42 chars)
+        # Try to get base address (first 42 chars) from multiple sources
         base_addr = None
+        
+        # First try: pool_id
         if pd.notna(pool_id) and pool_id != '':
             base_addr = extract_base_address(pool_id)
         
+        # Second try: derived_pool_address
         if not base_addr and pd.notna(derived_address) and derived_address != '':
             base_addr = extract_base_address(derived_address)
+        
+        # Third try: gauge_address itself (might be a pool address)
+        if not base_addr and pd.notna(current_gauge) and current_gauge != '':
+            base_addr = extract_base_address(current_gauge)
         
         # If we have a base address and it exists in FSN data
         if base_addr and base_addr in fsn_lookup:
@@ -139,15 +148,24 @@ def enrich_bribes_with_fsn():
                     bribes_df.at[idx, 'blockchain'] = fsn_record['blockchain']
                     filled_blockchain += 1
             
-            # Fill missing gauge_address
-            current_gauge = row.get('gauge_address')
-            if pd.isna(current_gauge) or current_gauge == '':
-                if pd.notna(fsn_record.get('gauge_address')):
+            # ALWAYS update gauge_address with the correct one from FSN
+            # (fixes cases where gauge_address is actually a pool address)
+            if pd.notna(fsn_record.get('gauge_address')):
+                old_gauge = normalize_address(current_gauge)
+                new_gauge = normalize_address(fsn_record['gauge_address'])
+                
+                if not current_gauge or pd.isna(current_gauge) or current_gauge == '':
+                    # Missing gauge - fill it
                     bribes_df.at[idx, 'gauge_address'] = fsn_record['gauge_address']
                     filled_gauge += 1
+                elif old_gauge != new_gauge:
+                    # Wrong gauge - correct it
+                    bribes_df.at[idx, 'gauge_address'] = fsn_record['gauge_address']
+                    corrected_gauge += 1
     
     print(f"   ✓ Filled {filled_blockchain} missing blockchain values")
     print(f"   ✓ Filled {filled_gauge} missing gauge_address values")
+    print(f"   ✓ Corrected {corrected_gauge} wrong gauge_address values")
     print(f"   ✓ Matched {len(matched_pools)} unique pools with FSN data")
     
     # 5. Final statistics
@@ -178,6 +196,7 @@ def enrich_bribes_with_fsn():
     print(f"\nSummary:")
     print(f"  - Blockchain filled: {filled_blockchain}")
     print(f"  - Gauge addresses filled: {filled_gauge}")
+    print(f"  - Gauge addresses corrected: {corrected_gauge}")
     print(f"  - Pools matched with FSN: {len(matched_pools)}")
     print(f"  - Output file: {OUTPUT_FILE}")
     

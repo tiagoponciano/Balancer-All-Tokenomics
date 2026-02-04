@@ -18,7 +18,9 @@ DATA_DIR = PROJECT_ROOT / "data"
 VEBAL_FILE = DATA_DIR / "veBAL.csv"
 VOTES_BRIBES_FILE = DATA_DIR / "votes_bribes_merged.csv"
 CORE_POOLS_CLASSIFICATION_FILE = DATA_DIR / "classification_core_pools.csv"
-OUTPUT_FILE = DATA_DIR / "Balancer-All-Tokenomics.csv"
+FSN_DATA_FILE = DATA_DIR / "FSN_data.csv"
+OUTPUT_FILE_ALL = DATA_DIR / "Balancer-All-Tokenomics.csv"
+OUTPUT_FILE_ORGANIZED = DATA_DIR / "Balancer-All-Tokenomics-Organized.csv"
 
 FINAL_COLUMNS = [
     'blockchain',
@@ -49,28 +51,35 @@ def create_final_dataset(
     vebal_file: Path = VEBAL_FILE,
     votes_bribes_file: Path = VOTES_BRIBES_FILE,
     core_pools_classification_file: Path = CORE_POOLS_CLASSIFICATION_FILE,
-    output_file: Path = OUTPUT_FILE
-) -> pd.DataFrame:
+    fsn_data_file: Path = FSN_DATA_FILE,
+    output_file_all: Path = OUTPUT_FILE_ALL,
+    output_file_organized: Path = OUTPUT_FILE_ORGANIZED
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Creates the final dataset by combining veBAL.csv, core pools classification, 
+    Creates the final dataset by combining veBAL.csv, FSN_data.csv, core pools classification, 
     and votes_bribes_merged.csv.
     
     The function performs:
-    1. Merge veBAL with core pools classification (using first 42 chars of address)
-    2. Left merge on gauge_address, block_date, and blockchain with votes_bribes
+    1. Load FSN_data to enrich veBAL with gauge_address and chain mappings
+    2. Merge veBAL with core pools classification (using first 42 chars of address)
+    3. Left merge on gauge_address, block_date, and blockchain with votes_bribes
+    4. Generate two outputs:
+       - ALL version: All records from veBAL (including partial data)
+       - ORGANIZED version: Only complete records with votes/bribes data
     
-    Rows from veBAL where gauge_address is missing or invalid are removed before merging.
-    The final dataset is sorted by block_date (descending), blockchain, and 
-    project_contract_address.
+    All rows from veBAL are kept in the ALL version regardless of match status.
+    The ORGANIZED version filters to only rows with complete information.
     
     Args:
         vebal_file: Path to veBAL CSV file
         votes_bribes_file: Path to votes_bribes_merged CSV file
         core_pools_classification_file: Path to core pools classification CSV file
-        output_file: Path to output CSV file
+        fsn_data_file: Path to FSN_data CSV file
+        output_file_all: Path to output CSV file for ALL records
+        output_file_organized: Path to output CSV file for ORGANIZED records
         
     Returns:
-        DataFrame with the final dataset containing all columns specified in FINAL_COLUMNS
+        Tuple of (all_df, organized_df) DataFrames
         
     Raises:
         FileNotFoundError: If input files don't exist
@@ -86,12 +95,15 @@ def create_final_dataset(
         raise FileNotFoundError(f"File not found: {votes_bribes_file}")
     if not core_pools_classification_file.exists():
         raise FileNotFoundError(f"File not found: {core_pools_classification_file}")
+    if not fsn_data_file.exists():
+        raise FileNotFoundError(f"File not found: {fsn_data_file}")
     
     print("\n📖 Reading files...")
     
     vebal_df = pd.read_csv(vebal_file)
     votes_bribes_df = pd.read_csv(votes_bribes_file)
     core_pools_df = pd.read_csv(core_pools_classification_file)
+    fsn_data_df = pd.read_csv(fsn_data_file)
     
     print(f"✅ veBAL CSV: {len(vebal_df):,} rows")
     print(f"   Columns: {list(vebal_df.columns)}")
@@ -99,6 +111,8 @@ def create_final_dataset(
     print(f"   Columns: {list(votes_bribes_df.columns)}")
     print(f"✅ Core Pools Classification CSV: {len(core_pools_df):,} rows")
     print(f"   Columns: {list(core_pools_df.columns)}")
+    print(f"✅ FSN Data CSV: {len(fsn_data_df):,} rows")
+    print(f"   Columns: {list(fsn_data_df.columns)}")
     
     required_vebal_cols = ['block_date', 'project_contract_address', 'gauge_address', 'blockchain']
     missing_vebal = [col for col in required_vebal_cols if col not in vebal_df.columns]
@@ -114,7 +128,59 @@ def create_final_dataset(
     # Keep all rows - don't filter by gauge_address
     # Users can filter by gauge_address presence in the Streamlit UI
     initial_vebal = len(vebal_df)
-    print(f"✅ veBAL after cleaning: {len(vebal_df):,} rows (all rows kept, including those without gauge_address)")
+    print(f"✅ veBAL initial: {len(vebal_df):,} rows (all rows kept, including those without gauge_address)")
+    
+    print("\n🔗 Enriching veBAL with FSN_data (gauge and chain mappings)...")
+    
+    # Prepare FSN_data for matching
+    fsn_data_df['poolId'] = fsn_data_df['poolId'].astype(str).str.lower().str.strip()
+    fsn_data_df['chain'] = fsn_data_df['chain'].astype(str).str.lower().str.strip()
+    fsn_data_df['id'] = fsn_data_df['id'].astype(str).str.lower().str.strip()
+    
+    # Prepare veBAL for matching
+    vebal_df['project_contract_address'] = vebal_df['project_contract_address'].astype(str).str.lower().str.strip()
+    if 'blockchain' in vebal_df.columns:
+        vebal_df['blockchain'] = vebal_df['blockchain'].astype(str).str.lower().str.strip()
+    
+    # Create a lookup from FSN_data: poolId -> (gauge_address, chain)
+    fsn_lookup = fsn_data_df[['poolId', 'id', 'chain']].copy()
+    fsn_lookup = fsn_lookup.rename(columns={'id': 'fsn_gauge_address', 'chain': 'fsn_chain'})
+    
+    # Merge with veBAL to enrich gauge_address and blockchain
+    vebal_df = vebal_df.merge(
+        fsn_lookup,
+        left_on='project_contract_address',
+        right_on='poolId',
+        how='left',
+        suffixes=('', '_fsn')
+    )
+    
+    # Fill missing gauge_address with FSN data
+    if 'gauge_address' not in vebal_df.columns:
+        vebal_df['gauge_address'] = None
+    
+    vebal_df['gauge_address'] = vebal_df['gauge_address'].fillna('')
+    gauge_filled = vebal_df['gauge_address'].isna() | (vebal_df['gauge_address'] == '') | (vebal_df['gauge_address'].astype(str).str.lower() == 'nan')
+    vebal_df.loc[gauge_filled, 'gauge_address'] = vebal_df.loc[gauge_filled, 'fsn_gauge_address']
+    
+    # Fill missing blockchain with FSN data
+    if 'blockchain' not in vebal_df.columns:
+        vebal_df['blockchain'] = None
+    
+    blockchain_filled = vebal_df['blockchain'].isna() | (vebal_df['blockchain'] == '') | (vebal_df['blockchain'].astype(str).str.lower() == 'nan')
+    vebal_df.loc[blockchain_filled, 'blockchain'] = vebal_df.loc[blockchain_filled, 'fsn_chain']
+    
+    # Clean up temporary columns
+    vebal_df = vebal_df.drop(columns=['poolId', 'fsn_gauge_address', 'fsn_chain'], errors='ignore')
+    
+    gauge_enriched = (vebal_df['gauge_address'].notna() & 
+                      (vebal_df['gauge_address'] != '') & 
+                      (vebal_df['gauge_address'].astype(str).str.lower() != 'nan')).sum()
+    
+    print(f"✅ veBAL enriched with FSN_data:")
+    print(f"   Records with gauge_address: {gauge_enriched:,} ({100 * gauge_enriched / len(vebal_df):.2f}%)")
+    print(f"   Records without gauge_address: {len(vebal_df) - gauge_enriched:,}")
+    print(f"✅ veBAL after enrichment: {len(vebal_df):,} rows (all rows kept)")
     
     # Define timezone removal function FIRST
     def remove_timezone(series):
@@ -208,17 +274,106 @@ def create_final_dataset(
         vebal_df = vebal_df.drop(columns=cols_to_remove)
     
     print("\n🔗 Merging data...")
+    print("   Strategy: Two-step merge (exact match + fuzzy date matching)")
     print("   Match keys: gauge_address, block_date, blockchain")
     
+    # STEP 1: Try exact date match first
+    print("\n   Step 1: Exact date match...")
     merged_df = pd.merge(
         vebal_df,
         votes_bribes_df,
         on=['gauge_address', 'block_date', 'blockchain'],
         how='left',
-        suffixes=('', '_votes_bribes')
+        suffixes=('', '_votes_bribes'),
+        indicator=True
     )
     
-    print(f"✅ Merge completed: {len(merged_df):,} rows")
+    exact_matched = (merged_df['_merge'] == 'both').sum()
+    print(f"   ✅ Exact matches: {exact_matched:,} rows")
+    
+    # STEP 2: For unmatched rows with gauges, try fuzzy date match (±7 days)
+    print("\n   Step 2: Fuzzy date match (±7 days) for unmatched rows...")
+    
+    unmatched_mask = (merged_df['_merge'] == 'left_only') & merged_df['gauge_address'].notna() & (merged_df['gauge_address'] != '')
+    unmatched_rows = merged_df[unmatched_mask].copy()
+    
+    if len(unmatched_rows) > 0:
+        print(f"   Processing {len(unmatched_rows):,} unmatched rows...")
+        
+        # Create a lookup for bribes
+        bribes_lookup = votes_bribes_df[
+            votes_bribes_df['bribe_amount_usd'].notna() |
+            votes_bribes_df['bal_emited_votes'].notna() |
+            votes_bribes_df['votes_received'].notna()
+        ].copy()
+        
+        fuzzy_matched = 0
+        fuzzy_bribes_recovered = 0.0
+        
+        # Process in batches for efficiency
+        for gauge in unmatched_rows['gauge_address'].unique():
+            if pd.isna(gauge) or gauge == '' or str(gauge).lower() == 'nan':
+                continue
+            
+            # Get all unmatched veBAL rows for this gauge
+            vebal_gauge_mask = unmatched_mask & (merged_df['gauge_address'] == gauge)
+            vebal_gauge_rows = merged_df[vebal_gauge_mask]
+            
+            if len(vebal_gauge_rows) == 0:
+                continue
+            
+            # Get all bribes for this gauge+blockchain combo
+            for blockchain in vebal_gauge_rows['blockchain'].unique():
+                if pd.isna(blockchain) or blockchain == '':
+                    continue
+                
+                bribes_for_gauge = bribes_lookup[
+                    (bribes_lookup['gauge_address'] == gauge) &
+                    (bribes_lookup['blockchain'] == blockchain)
+                ]
+                
+                if len(bribes_for_gauge) == 0:
+                    continue
+                
+                # For each veBAL row, find the nearest bribe within 7 days
+                vebal_blockchain_mask = vebal_gauge_mask & (merged_df['blockchain'] == blockchain)
+                
+                for idx in merged_df[vebal_blockchain_mask].index:
+                    vebal_date = merged_df.loc[idx, 'block_date']
+                    
+                    if pd.isna(vebal_date):
+                        continue
+                    
+                    # Calculate date differences (use copy to avoid SettingWithCopyWarning)
+                    bribes_with_diff = bribes_for_gauge.copy()
+                    bribes_with_diff['date_diff'] = abs((bribes_with_diff['block_date'] - vebal_date).dt.days)
+                    
+                    # Find bribes within 7 days
+                    within_window = bribes_with_diff[bribes_with_diff['date_diff'] <= 7]
+                    
+                    if len(within_window) > 0:
+                        # Use the closest match
+                        closest = within_window.nsmallest(1, 'date_diff').iloc[0]
+                        
+                        # Fill in the data
+                        if 'bribe_amount_usd' in closest and pd.notna(closest['bribe_amount_usd']):
+                            merged_df.loc[idx, 'bribe_amount_usd'] = closest['bribe_amount_usd']
+                            fuzzy_bribes_recovered += closest['bribe_amount_usd']
+                        if 'bal_emited_votes' in closest and pd.notna(closest['bal_emited_votes']):
+                            merged_df.loc[idx, 'bal_emited_votes'] = closest['bal_emited_votes']
+                        if 'votes_received' in closest and pd.notna(closest['votes_received']):
+                            merged_df.loc[idx, 'votes_received'] = closest['votes_received']
+                        
+                        fuzzy_matched += 1
+        
+        print(f"   ✅ Fuzzy matches: {fuzzy_matched:,} rows")
+        if fuzzy_bribes_recovered > 0:
+            print(f"   💰 Bribes recovered: ${fuzzy_bribes_recovered:,.2f}")
+    
+    # Remove merge indicator
+    merged_df = merged_df.drop(columns=['_merge'])
+    
+    print(f"\n✅ Merge completed: {len(merged_df):,} rows")
     
     matched_count = merged_df['bal_emited_votes'].notna().sum() if 'bal_emited_votes' in merged_df.columns else 0
     unmatched_count = len(merged_df) - matched_count
@@ -303,15 +458,33 @@ def create_final_dataset(
         total_emissions = final_df['bal_emited_votes'].sum()
         print(f"   Total BAL emitted: {total_emissions:,.2f}")
     
-    print(f"\n💾 Saving result to {output_file}...")
-    final_df.to_csv(output_file, index=False)
+    print(f"\n💾 Saving ALL version to {output_file_all}...")
+    final_df.to_csv(output_file_all, index=False)
+    print(f"✅ ALL version saved successfully! ({len(final_df):,} rows)")
     
-    print(f"✅ File saved successfully!")
+    print(f"\n📋 Creating ORGANIZED version (only complete records)...")
+    # Filter to only records that have votes/bribes data
+    organized_df = final_df[
+        (final_df['bal_emited_votes'].notna() | final_df['bribe_amount_usd'].notna()) &
+        final_df['gauge_address'].notna() &
+        (final_df['gauge_address'] != '') &
+        (final_df['gauge_address'].astype(str).str.lower() != 'nan')
+    ].copy()
     
-    print(f"\n📋 Data sample (first 10 rows):")
+    print(f"✅ ORGANIZED version created: {len(organized_df):,} rows")
+    print(f"   Filtered out: {len(final_df) - len(organized_df):,} rows without votes/bribes data")
+    
+    print(f"\n💾 Saving ORGANIZED version to {output_file_organized}...")
+    organized_df.to_csv(output_file_organized, index=False)
+    print(f"✅ ORGANIZED version saved successfully!")
+    
+    print(f"\n📋 Data sample from ALL version (first 10 rows):")
     print(final_df.head(10).to_string(index=False))
     
-    print(f"\n📊 Column information:")
+    print(f"\n📋 Data sample from ORGANIZED version (first 10 rows):")
+    print(organized_df.head(10).to_string(index=False))
+    
+    print(f"\n📊 Column information (ALL version):")
     for col in FINAL_COLUMNS:
         if col in final_df.columns:
             non_null = final_df[col].notna().sum()
@@ -319,7 +492,15 @@ def create_final_dataset(
             pct = 100 * non_null / len(final_df) if len(final_df) > 0 else 0
             print(f"   {col}: {non_null:,} values ({pct:.1f}% filled)")
     
-    return final_df
+    print(f"\n📊 Column information (ORGANIZED version):")
+    for col in FINAL_COLUMNS:
+        if col in organized_df.columns:
+            non_null = organized_df[col].notna().sum()
+            null_count = len(organized_df) - non_null
+            pct = 100 * non_null / len(organized_df) if len(organized_df) > 0 else 0
+            print(f"   {col}: {non_null:,} values ({pct:.1f}% filled)")
+    
+    return final_df, organized_df
 
 
 def main():
@@ -327,18 +508,20 @@ def main():
     Main function to execute the final dataset creation process.
     
     Returns:
-        DataFrame with the final dataset containing all columns specified in FINAL_COLUMNS
+        Tuple of (all_df, organized_df) DataFrames
         
     Raises:
         FileNotFoundError: If input files don't exist
         ValueError: If required columns are missing
     """
     try:
-        result_df = create_final_dataset()
+        all_df, organized_df = create_final_dataset()
         print("\n" + "=" * 60)
         print("✅ Process completed successfully!")
+        print(f"   ALL version: {len(all_df):,} rows")
+        print(f"   ORGANIZED version: {len(organized_df):,} rows")
         print("=" * 60)
-        return result_df
+        return all_df, organized_df
     except Exception as e:
         print(f"\n❌ Error during processing: {e}")
         import traceback

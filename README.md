@@ -42,6 +42,18 @@ SMTP_PORT=587
 
 ## 🎯 Usage
 
+### Quick Start - Generate Datasets
+
+If you already have all the required data files and just want to generate the final datasets:
+
+```bash
+python generate_datasets.py
+```
+
+This will generate both output files:
+- `data/Balancer-All-Tokenomics.csv` (ALL version)
+- `data/Balancer-All-Tokenomics-Organized.csv` (ORGANIZED version)
+
 ### Run complete pipeline:
 
 ```bash
@@ -55,7 +67,7 @@ This will execute all steps in the correct order:
 4. Adding gauge_address to veBAL
 5. Votes & Bribes merge
 6. Core Pools Classification
-7. Final dataset creation
+7. Final dataset creation (generates BOTH output files)
 
 ### Run individual steps:
 
@@ -133,21 +145,37 @@ A pool is classified as a **Core Pool** on a specific date if there exists at le
 
 ### 4. Final Dataset
 
-The final dataset (`Balancer-All-Tokenomics.csv`) combines:
+The final dataset generation creates **TWO output files**:
+
+1. **`Balancer-All-Tokenomics.csv`** (ALL VERSION)
+   - Contains **ALL records** from veBAL
+   - Includes pools without votes/bribes data
+   - Enriched with FSN_data mappings for gauge_address and blockchain
+   - Best for comprehensive analysis
+
+2. **`Balancer-All-Tokenomics-Organized.csv`** (ORGANIZED VERSION)
+   - Contains **only complete records** with votes/bribes data
+   - Filtered to records with gauge_address
+   - Best for focused analysis and dashboards
+
+Both datasets combine:
 - veBAL data (TVL, fees, volumes, etc.)
-- Votes & Bribes data
+- Votes & Bribes data (when available)
 - **Core/Non-Core Classification** based on time intervals
+- **FSN_data enrichment** for gauge addresses and chain mappings
 
 ## 📁 Generated Files Structure
 
 ```
 data/
-├── veBAL.csv                          # veBAL data from Dune
-├── Bribes.csv                         # Bribes from Dune
-├── Votes_Emissions.csv                # Votes and Emissions from Dune
-├── votes_bribes_merged.csv            # Votes + Bribes Merge
-├── classification_core_pools.csv      # Core/Non-Core Classification
-└── Balancer-All-Tokenomics.csv        # 🎯 Consolidated final dataset
+├── veBAL.csv                                    # veBAL data from Dune (all pools, all dates)
+├── FSN_data.csv                                 # Gauge and chain mappings
+├── Bribes.csv                                   # Bribes from Dune
+├── Votes_Emissions.csv                          # Votes and Emissions from Dune
+├── votes_bribes_merged.csv                      # Votes + Bribes Merge
+├── classification_core_pools.csv                # Core/Non-Core Classification
+├── Balancer-All-Tokenomics.csv                  # 🎯 ALL records (comprehensive)
+└── Balancer-All-Tokenomics-Organized.csv        # 🎯 Complete records only (focused)
 ```
 
 ## 📋 Final Dataset Columns
@@ -216,11 +244,32 @@ To ensure compatibility between different address formats:
 | `script/classify_core_pools.py` | Core/Non-Core pools classification |
 | `script/create_final_dataset.py` | Consolidated final dataset creation |
 
+## ❓ Which Dataset Should I Use?
+
+### Use `Balancer-All-Tokenomics.csv` (ALL) when:
+- ✅ You need a comprehensive view of all pools on all dates
+- ✅ You want to analyze pools without active voting/bribes
+- ✅ You're doing historical analysis or pool tracking
+- ✅ You want to see the full picture including incomplete data
+
+### Use `Balancer-All-Tokenomics-Organized.csv` (ORGANIZED) when:
+- ✅ You only care about pools with votes/bribes activity
+- ✅ You're building dashboards focused on active pools
+- ✅ You want cleaner data without missing values
+- ✅ You're analyzing ROI or bribe efficiency metrics
+
+**Note:** The Streamlit app uses the ALL version by default, giving you the most comprehensive view.
+
 ## 🐛 Troubleshooting
 
 ### Error: "DUNE_API_KEY not found"
 - Check if the `.env` file exists in the project root
 - Confirm that the key is correctly configured
+
+### Error: "File not found: FSN_data.csv"
+- Run the full pipeline first: `python main.py`
+- Ensure all required data files exist in `data/` folder
+- Verify that veBAL.csv is the NEW version with all dates
 
 ### Error: "File not found"
 - Run the full pipeline first: `python main.py`
@@ -230,3 +279,12 @@ To ensure compatibility between different address formats:
 - Check if `data/results.csv` exists and has columns: `address`, `added_date`, `removed_date`
 - Confirm that `data/veBAL.csv` has `project_contract_address` and `block_date`
 
+### Missing or lower bribes than expected
+- Ensure you're using the NEW `veBAL.csv` file with all dates (not the old audited version)
+- Verify that `FSN_data.csv` is up to date with latest gauge mappings
+- Check the console output during final dataset creation for merge statistics
+- Compare totals between ALL and ORGANIZED versions
+
+### Need more details?
+- See `CHANGES_SUMMARY.md` for detailed information about the data processing changes
+- Run `python generate_datasets.py` to see detailed statistics during generation
