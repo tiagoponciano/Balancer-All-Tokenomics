@@ -26,8 +26,8 @@ FINAL_COLUMNS = [
     'blockchain', 'project', 'version', 'block_date', 'project_contract_address',
     'gauge_address', 'has_gauge', 'pool_symbol', 'pool_type', 'swap_amount_usd',
     'tvl_usd', 'tvl_eth', 'total_protocol_fee_usd', 'protocol_fee_amount_usd',
-    'swap_fee_usd', 'yield_fee_usd', 'swap_fee_%', 'core_non_core',
-    'bal_emited_votes', 'votes_received', 'bribe_amount_usd'
+    'swap_fee_usd', 'yield_fee_usd', 'swap_fee_percent', 'core_non_core',
+    'bal_emited_votes', 'bal_emited_usd', 'votes_received', 'bribe_amount_usd'
 ]
 
 def create_final_dataset():
@@ -57,6 +57,15 @@ def create_final_dataset():
     # 3. Standardize Votes/Bribes
     print("🧹 Standardizing Votes/Bribes...")
     vb_df['gauge_key'] = vb_df['gauge_address'].fillna('').astype(str).str.lower().str.strip()
+    # Ensure pool_42 exists (older merges may not include it)
+    if 'pool_42' not in vb_df.columns:
+        def _pool_42_from_row(row):
+            for col in ['pool_id', 'derived_pool_address', 'pool_address']:
+                val = row.get(col)
+                if pd.notna(val) and str(val).strip() != '':
+                    return str(val).strip().lower()[:42]
+            return ''
+        vb_df['pool_42'] = vb_df.apply(_pool_42_from_row, axis=1)
     vb_df['pool_key'] = vb_df['pool_42'].fillna('').astype(str).str.lower().str.strip()
     vb_df['date_key'] = pd.to_datetime(vb_df['day']).dt.tz_localize(None)
     vb_df['chain_key'] = vb_df['blockchain'].astype(str).str.lower().str.strip()
@@ -67,6 +76,7 @@ def create_final_dataset():
     vb_gauge = vb_df.groupby(['gauge_key', 'date_key', 'chain_key']).agg({
         'bribe_amount_usd': 'sum',
         'bal_emited_votes': 'sum',
+        'bal_emited_usd': 'sum',
         'votes_received': 'sum'
     }).reset_index()
     
@@ -89,6 +99,7 @@ def create_final_dataset():
         vb_pool = vb_df[vb_df['bribe_amount_usd'] > 0].groupby(['pool_key', 'date_key', 'chain_key']).agg({
             'bribe_amount_usd': 'sum',
             'bal_emited_votes': 'sum',
+            'bal_emited_usd': 'sum',
             'votes_received': 'sum'
         }).reset_index()
         
@@ -104,6 +115,7 @@ def create_final_dataset():
             match_data = pool_matches.set_index('index')
             merged_df.loc[match_data.index, 'bribe_amount_usd'] = match_data['bribe_amount_usd']
             merged_df.loc[match_data.index, 'bal_emited_votes'] = match_data['bal_emited_votes']
+            merged_df.loc[match_data.index, 'bal_emited_usd'] = match_data['bal_emited_usd']
             merged_df.loc[match_data.index, 'votes_received'] = match_data['votes_received']
             print(f"   ✅ Additional bribes matched by pool: ${pool_matches['bribe_amount_usd'].sum():,.2f}")
 
@@ -129,6 +141,9 @@ def create_final_dataset():
 
     # 7. Final Cleanup
     print("🧹 Finalizing columns...")
+    # Rename swap_fee_% to swap_fee_percent for consistency
+    if 'swap_fee_%' in merged_df.columns and 'swap_fee_percent' not in merged_df.columns:
+        merged_df = merged_df.rename(columns={'swap_fee_%': 'swap_fee_percent'})
     merged_df['has_gauge'] = (merged_df['gauge_address'].notna()) & (merged_df['gauge_address'].astype(str) != 'nan') & (merged_df['gauge_address'] != '')
 
     # Debug: identify bribes that never make it into the final dataset
