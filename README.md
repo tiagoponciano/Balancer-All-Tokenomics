@@ -199,7 +199,7 @@ The `Balancer-All-Tokenomics.csv` file contains the following columns:
 | `protocol_fee_amount_usd` | Protocol fee amount in USD |
 | `swap_fee_usd` | Swap fee in USD |
 | `yield_fee_usd` | Yield fee in USD |
-| `swap_fee_%` | Swap fee percentage |
+| `swap_fee_percent` | Swap fee percentage |
 | `core_non_core` | Core/Non-Core Classification (Core/Non-Core) |
 | `bal_emited_votes` | BAL emitted via votes |
 | `votes_received` | Votes received |

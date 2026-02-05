@@ -446,6 +446,8 @@ try:
         # Preserve gauge_address and pool_type for display
         if 'gauge_address' in df_bribes_display.columns:
             agg_dict['gauge_address'] = 'first'
+        if 'project_contract_address' in df_bribes_display.columns:
+            agg_dict['project_contract_address'] = 'first'
         if 'pool_type' in df_bribes_display.columns:
             agg_dict['pool_type'] = 'first'
 
@@ -534,7 +536,7 @@ if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in po
         cols_to_include.append("blockchain")
     if "gauge_address" in pool_bribes.columns:
         cols_to_include.append("gauge_address")
-    elif "project_contract_address" in pool_bribes.columns:
+    if "project_contract_address" in pool_bribes.columns:
         cols_to_include.append("project_contract_address")
     
     rr = pool_bribes[cols_to_include].copy()
@@ -624,18 +626,14 @@ with tab1:
         # Sort by bribe amount descending
         ranking_df = ranking_df.sort_values('Total Bribes (USD)', ascending=False)
         
-        # Generate links for Balancer UI and Explorer
-        if 'blockchain' in ranking_df.columns and 'gauge_address' in ranking_df.columns:
+        # Generate links for Balancer UI (pool link)
+        if 'blockchain' in ranking_df.columns:
             ranking_df['balancer_url'] = ranking_df.apply(
                 lambda row: utils.get_balancer_ui_url(
-                    row['blockchain'], 
-                    row['gauge_address'], 
+                    row['blockchain'],
+                    row.get('project_contract_address') or row.get('gauge_address'),
                     row.get('version', None)
-                ), 
-                axis=1
-            )
-            ranking_df['explorer_url'] = ranking_df.apply(
-                lambda row: utils.get_explorer_url(row['blockchain'], row['gauge_address']), 
+                ),
                 axis=1
             )
         
@@ -654,37 +652,18 @@ with tab1:
             display_df['pool_link'] = display_df['pool_label']
 
         if 'blockchain' in display_df.columns:
-            if 'explorer_url' in display_df.columns:
-                display_df['chain_display'] = display_df.apply(
-                    lambda row: f"{row['explorer_url']}?label={row['blockchain']}" if pd.notna(row.get('explorer_url')) and row['explorer_url'] else row['blockchain'], 
-                    axis=1
-                )
-            else:
-                display_df['chain_display'] = display_df['blockchain']
+            display_df['chain_display'] = display_df['blockchain']
 
-        # Address link (gauge_address) with short label
+        # Address link (gauge_address) with short label - always Etherscan
         def _short_addr(val):
             s = str(val)
             if s.startswith("0x") and len(s) > 10:
                 return f"{s[:4]}...{s[-4:]}"
             return s
-        if 'gauge_address' in display_df.columns and 'explorer_url' in display_df.columns:
+        if 'gauge_address' in display_df.columns:
             display_df['address_display'] = display_df.apply(
-                lambda row: f"{row['explorer_url']}?label={_short_addr(row['gauge_address'])}"
-                if pd.notna(row.get('explorer_url')) and row.get('explorer_url') else _short_addr(row.get('gauge_address')),
-                axis=1
-            )
-
-        # Address link (gauge_address) with short label
-        def _short_addr(val):
-            s = str(val)
-            if s.startswith("0x") and len(s) > 10:
-                return f"{s[:4]}...{s[-4:]}"
-            return s
-        if 'gauge_address' in display_df.columns and 'explorer_url' in display_df.columns:
-            display_df['address_display'] = display_df.apply(
-                lambda row: f"{row['explorer_url']}?label={_short_addr(row['gauge_address'])}"
-                if pd.notna(row.get('explorer_url')) and row.get('explorer_url') else _short_addr(row.get('gauge_address')),
+                lambda row: f"https://etherscan.io/address/{row['gauge_address']}?label={_short_addr(row['gauge_address'])}"
+                if pd.notna(row.get('gauge_address')) and str(row.get('gauge_address')).strip() != '' else "",
                 axis=1
             )
         
@@ -723,11 +702,7 @@ with tab1:
             display_text=r"label=(.*)"
             )
         if 'Chain' in df_show.columns:
-            column_config['Chain'] = st.column_config.LinkColumn(
-                'Chain', 
-                width='small',
-                display_text=r"label=(.*)" 
-            )
+            column_config['Chain'] = st.column_config.TextColumn('Chain', width='small')
         if 'Pool Type' in df_show.columns:
             column_config['Pool Type'] = st.column_config.TextColumn('Pool Type', width='small')
             

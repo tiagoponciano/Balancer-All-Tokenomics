@@ -1962,7 +1962,7 @@ def _process_main_data(df):
     Process Balancer-All-Tokenomics.csv for Streamlit: align types, merge direct_incentives from BAL_Emissions,
     compute dao_profit_usd, emissions_roi, then classify_pools. Main data has: blockchain, project,
     version, block_date, project_contract_address, pool_symbol, pool_type, swap_amount_usd, tvl_usd,
-    tvl_eth, total_protocol_fee_usd, protocol_fee_amount_usd, swap_fee_usd, yield_fee_usd, swap_fee_%,
+    tvl_eth, total_protocol_fee_usd, protocol_fee_amount_usd, swap_fee_usd, yield_fee_usd, swap_fee_percent,
     core_non_core (0/1), bal_emited_votes, votes_received.
     """
     if df is None or df.empty:
@@ -1994,8 +1994,8 @@ def _process_main_data(df):
     numeric_cols = [
         'swap_amount_usd', 'tvl_usd', 'tvl_eth',
         'total_protocol_fee_usd', 'protocol_fee_amount_usd',
-        'swap_fee_usd', 'yield_fee_usd', 'swap_fee_%',
-        'bal_emited_votes', 'votes_received',
+        'swap_fee_usd', 'yield_fee_usd', 'swap_fee_percent',
+        'bal_emited_votes', 'bal_emited_usd', 'votes_received',
     ]
     for col in numeric_cols:
         if col in df.columns:
@@ -2056,8 +2056,8 @@ def _process_merged_data(df):
     numeric_cols = [
         'swap_amount_usd', 'tvl_usd', 'tvl_eth',
         'total_protocol_fee_usd', 'protocol_fee_amount_usd',
-        'swap_fee_usd', 'yield_fee_usd', 'swap_fee_%',
-        'bal_emited_votes', 'votes_received', 'direct_incentives'
+        'swap_fee_usd', 'yield_fee_usd', 'swap_fee_percent',
+        'bal_emited_votes', 'bal_emited_usd', 'votes_received', 'direct_incentives'
     ]
     for col in numeric_cols:
         if col in df.columns:

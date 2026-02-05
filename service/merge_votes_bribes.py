@@ -154,6 +154,47 @@ def merge_votes_bribes(
     )
 
     bribes_df = explode_multi_gauges(bribes_df, pool_to_gauges)
+
+    # Fill missing blockchain in bribes using FSN mappings (gauge -> chain, pool -> chain)
+    fsn_df['chain_norm'] = fsn_df['chain'].astype(str).str.lower().str.strip()
+    gauge_to_chain = dict(zip(fsn_df['id_norm'], fsn_df['chain_norm']))
+    pool_to_chain = (
+        fsn_df.groupby('pool_42')['chain_norm']
+        .apply(lambda s: next((x for x in s if x and x != 'nan'), None))
+        .to_dict()
+    )
+
+    def _fill_bribe_chain(row):
+        val = row.get('blockchain')
+        if pd.notna(val) and str(val).strip() != '' and str(val).strip().lower() != 'nan':
+            return str(val).strip().lower()
+        g = row.get('gauge_address')
+        if pd.notna(g) and str(g).strip() != '':
+            g_norm = str(g).strip().lower()
+            if g_norm in gauge_to_chain and gauge_to_chain[g_norm]:
+                return gauge_to_chain[g_norm]
+        pool_id = row.get('pool_id')
+        derived_pool = row.get('derived_pool_address')
+        pool_42 = None
+        if pd.notna(pool_id) and str(pool_id).strip() != '':
+            pool_42 = str(pool_id).strip().lower()[:42]
+        elif pd.notna(derived_pool) and str(derived_pool).strip() != '':
+            pool_42 = str(derived_pool).strip().lower()[:42]
+        if pool_42 and pool_42 in pool_to_chain and pool_to_chain[pool_42]:
+            return pool_to_chain[pool_42]
+        return None
+
+    bribes_df['blockchain'] = bribes_df.apply(_fill_bribe_chain, axis=1)
+
+    # Ensure pool_42 exists for downstream joins
+    if 'pool_42' not in bribes_df.columns:
+        def _pool_42_from_row(row):
+            for col in ['pool_id', 'derived_pool_address']:
+                val = row.get(col)
+                if pd.notna(val) and str(val).strip() != '':
+                    return str(val).strip().lower()[:42]
+            return None
+        bribes_df['pool_42'] = bribes_df.apply(_pool_42_from_row, axis=1)
     
     print(f"✅ Votes_Emissions CSV: {len(votes_df):,} rows")
     print(f"   Columns: {list(votes_df.columns)}")
@@ -232,11 +273,13 @@ def merge_votes_bribes(
     
     votes_renamed = votes_df.rename(columns={
         'daily_emissions': 'bal_emited_votes',
+        'daily_emissions_usd': 'bal_emited_usd',
         'total_votes': 'votes_received'
     })
     
     print("   Bribes: amount_usdc → bribe_amount_usd")
     print("   Votes_Emissions: daily_emissions → bal_emited_votes")
+    print("   Votes_Emissions: daily_emissions_usd → bal_emited_usd")
     print("   Votes_Emissions: total_votes → votes_received")
     
     print("\n🔗 Merging data...")
