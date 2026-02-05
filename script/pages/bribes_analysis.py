@@ -735,7 +735,9 @@ with tab1:
 with tab2:
     if all_pools_for_ranking is not None and not all_pools_for_ranking.empty:
         # Show all pools from pool_bribes, merge with veBAL votes from df_bribes_display (Balancer-Tokenomics)
-        ranking_df = all_pools_for_ranking[['pool', 'pool_title', 'pool_name']].copy()
+        base_cols = ['pool', 'pool_title', 'pool_name']
+        extra_cols = [c for c in ['blockchain', 'project_contract_address', 'gauge_address', 'version', 'pool_type'] if c in all_pools_for_ranking.columns]
+        ranking_df = all_pools_for_ranking[base_cols + extra_cols].copy()
         
         # veBAL votes = votes_received in main data. Sum per pool in filtered period, then pct and rank
         vebal_votes_dict = {}
@@ -798,17 +800,13 @@ with tab2:
         # Sort by veBAL votes descending
         ranking_df = ranking_df.sort_values('veBAL Votes', ascending=False)
         
-        if 'blockchain' in ranking_df.columns and 'gauge_address' in ranking_df.columns:
+        if 'blockchain' in ranking_df.columns:
             ranking_df['balancer_url'] = ranking_df.apply(
                 lambda row: utils.get_balancer_ui_url(
-                    row['blockchain'], 
-                    row['gauge_address'], 
+                    row['blockchain'],
+                    row.get('project_contract_address') or row.get('gauge_address'),
                     row.get('version', None)
-                ), 
-                axis=1
-            )
-            ranking_df['explorer_url'] = ranking_df.apply(
-                lambda row: utils.get_explorer_url(row['blockchain'], row['gauge_address']), 
+                ),
                 axis=1
             )
         
@@ -823,13 +821,20 @@ with tab2:
             display_df['pool_display'] = display_df.apply(_safe_pool_label, axis=1)
 
         if 'blockchain' in display_df.columns:
-            if 'explorer_url' in display_df.columns:
-                display_df['chain_display'] = display_df.apply(
-                    lambda row: f"{row['explorer_url']}?label={row['blockchain']}" if pd.notna(row.get('explorer_url')) and row['explorer_url'] else row['blockchain'], 
-                    axis=1
-                )
-            else:
-                display_df['chain_display'] = display_df['blockchain']
+            display_df['chain_display'] = display_df['blockchain']
+
+        # Address link (gauge_address) with short label - always Etherscan
+        def _short_addr(val):
+            s = str(val)
+            if s.startswith("0x") and len(s) > 10:
+                return f"{s[:4]}...{s[-4:]}"
+            return s
+        if 'gauge_address' in display_df.columns:
+            display_df['address_display'] = display_df.apply(
+                lambda row: f"https://etherscan.io/address/{row['gauge_address']}?label={_short_addr(row['gauge_address'])}"
+                if pd.notna(row.get('gauge_address')) and str(row.get('gauge_address')).strip() != '' else "",
+                axis=1
+            )
         
         display_df['veBAL Votes'] = display_df['veBAL Votes'].apply(
             lambda x: f"{float(x):,.0f}" if pd.notna(x) and float(x) > 0 else "0"
@@ -873,11 +878,7 @@ with tab2:
         )
         
         if 'Chain' in df_show.columns:
-            column_config['Chain'] = st.column_config.LinkColumn(
-                'Chain', 
-                width='small',
-                display_text=r"label=(.*)"
-            )
+            column_config['Chain'] = st.column_config.TextColumn('Chain', width='small')
         if 'Pool Type' in df_show.columns:
             column_config['Pool Type'] = st.column_config.TextColumn('Pool Type', width='small')
             
@@ -895,31 +896,7 @@ with tab2:
             column_config=column_config
         )
         
-        # Add visualization if there's data (only show when "Select All" is active)
-        if st.session_state.pool_filter_mode_bribes == 'all':
-            vebal_with_data = ranking_df[ranking_df['veBAL Votes'] > 0]
-            if not vebal_with_data.empty:
-                st.markdown("#### 📊 Top Pools by veBAL Votes")
-                top_10_vebal = vebal_with_data.nlargest(10, 'veBAL Votes')
-                fig_vebal = px.bar(
-                    top_10_vebal,
-                    x='pool',
-                    y='veBAL Votes',
-                    title="Top Pools by veBAL Votes",
-                    labels={'veBAL Votes': 'veBAL Votes', 'pool': 'Pool'},
-                    color='veBAL Votes',
-                    color_continuous_scale='Blues'
-                )
-                fig_vebal.update_layout(
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    font_color='white',
-                    title=dict(font=dict(color='white', size=16)),
-                    xaxis=dict(gridcolor='rgba(255,255,255,0.1)', tickangle=-45),
-                    yaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-                    showlegend=False
-                )
-                st.plotly_chart(fig_vebal, use_container_width=True)
+        # Removed Top Pools by veBAL Votes chart per request
     elif 'vebal_votes' in pool_bribes.columns:
         # Fallback: show from pool_bribes
         vebal_data = pool_bribes[pool_bribes['vebal_votes'].notna() & (pool_bribes['vebal_votes'] > 0)].copy()
@@ -931,29 +908,7 @@ with tab2:
             top_vebal['Ranking'] = top_vebal['Ranking'].apply(lambda x: f"#{int(x)}" if pd.notna(x) else "N/A")
             st.dataframe(top_vebal, use_container_width=True, hide_index=True)
             
-            # Add visualization (only show when "Select All" is active)
-            if st.session_state.pool_filter_mode_bribes == 'all':
-                st.markdown("#### 📊 Top Pools by veBAL Votes")
-                top_10_vebal = vebal_data.nlargest(10, 'vebal_votes')
-                fig_vebal = px.bar(
-                    top_10_vebal,
-                    x=pool_col,
-                    y='vebal_votes',
-                    title="Top Pools by veBAL Votes",
-                    labels={'vebal_votes': 'veBAL Votes', pool_col: 'Pool'},
-                    color='vebal_votes',
-                    color_continuous_scale='Blues'
-                )
-                fig_vebal.update_layout(
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    font_color='white',
-                    title=dict(font=dict(color='white', size=16)),
-                    xaxis=dict(gridcolor='rgba(255,255,255,0.1)', tickangle=-45),
-                    yaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-                    showlegend=False
-                )
-                st.plotly_chart(fig_vebal, use_container_width=True)
+            # Removed Top Pools by veBAL Votes chart per request
         else:
             st.info("No veBAL votes data available for the selected pools")
     else:
