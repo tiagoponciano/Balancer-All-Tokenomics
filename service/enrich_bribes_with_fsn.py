@@ -172,7 +172,8 @@ def enrich_bribes_with_fsn():
     return bribes_df
 
 
-if __name__ == "__main__":
+def main():
+    """Main function to be called from main.py"""
     try:
         enrich_bribes_with_fsn()
         print("\n✅ Enrichment completed successfully!")
@@ -180,3 +181,8 @@ if __name__ == "__main__":
         print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
+        raise
+
+
+if __name__ == "__main__":
+    main()

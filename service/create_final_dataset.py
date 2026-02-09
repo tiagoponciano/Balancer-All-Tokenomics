@@ -192,7 +192,9 @@ def create_final_dataset():
     
     return final_df
 
-if __name__ == "__main__":
+
+def main():
+    """Main function to be called from main.py"""
     try:
         create_final_dataset()
         print("\n🚀 Process completed successfully!")
@@ -200,3 +202,8 @@ if __name__ == "__main__":
         print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
+        raise
+
+
+if __name__ == "__main__":
+    main()
