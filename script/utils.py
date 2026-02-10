@@ -1916,8 +1916,8 @@ def apply_date_filter(df, year, quarter_months):
 MAIN_DATA_FILENAME = 'Balancer-All-Tokenomics.csv'
 BAL_EMISSIONS_FILENAME = 'BAL_Emissions_by_GaugePool.csv'
 
-# NEON/Postgres: table name used by service/upload_to_neon.py
-NEON_TABLE_MAIN = "tokenomics"
+# NEON/Postgres: table name. Override with env NEON_TABLE (e.g. NEON_TABLE=balancer_data if you \copy into balancer_data).
+NEON_TABLE_MAIN = os.getenv("NEON_TABLE", "tokenomics").strip() or "tokenomics"
 
 
 def _load_data_from_neon():
@@ -1925,6 +1925,7 @@ def _load_data_from_neon():
     url = os.getenv("DATABASE_URL")
     if not url or not url.strip():
         return None
+    table = NEON_TABLE_MAIN
     try:
         from sqlalchemy import create_engine
     except ImportError:
@@ -1933,7 +1934,7 @@ def _load_data_from_neon():
         if "sslmode" not in url:
             url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
         engine = create_engine(url)
-        df = pd.read_sql(f"SELECT * FROM {NEON_TABLE_MAIN}", engine)
+        df = pd.read_sql(f'SELECT * FROM "{table}"', engine)
         if df is not None and not df.empty:
             return df
     except Exception:
