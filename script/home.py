@@ -125,6 +125,9 @@ df = utils.load_data()
 if df.empty:
     st.stop()
 
+# Show where data was loaded from (NEON / Local CSV / Supabase)
+utils.show_data_source_badge()
+
 # Initialize session state - default to 'all' (show everything)
 if 'pool_filter_mode' not in st.session_state:
     st.session_state.pool_filter_mode = 'all'  # Default: show all pools

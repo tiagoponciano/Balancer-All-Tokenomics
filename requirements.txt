@@ -1,11 +1,21 @@
+# Streamlit app
 streamlit>=1.30
-pandas
-numpy
-plotly
-requests
-python-dotenv
-supabase
-dune-client
 streamlit-dynamic-filters
-datetime
-dateutil
+
+# Data & analysis
+pandas>=2.0
+numpy>=1.24
+plotly>=5.18
+
+# Data sources
+requests>=2.28
+python-dotenv>=1.0
+supabase>=2.0
+dune-client>=1.0
+
+# NEON / Postgres (for load_data and upload_to_neon)
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+
+# Date handling (relativedelta for chunked Dune fetch)
+python-dateutil>=2.8

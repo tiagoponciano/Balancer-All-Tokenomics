@@ -150,11 +150,13 @@ def fetch_and_save_chunked(
     output_filename: str,
     project_root: Path,
     chunk_months: Optional[int] = None,
-    chunk_days: Optional[int] = 45
+    chunk_days: Optional[int] = 45,
+    merge_with_existing: bool = False,
 ) -> Tuple[bool, int, Optional[Path]]:
     """
     Fetches a chunked Dune query and saves to CSV.
     Uses chunk_days (default 45) for smaller, less timeout-prone requests.
+    If merge_with_existing=True, appends to existing CSV (for incremental runs).
     
     Args:
         api_key: Dune API key
@@ -173,6 +175,10 @@ def fetch_and_save_chunked(
     print(f"Processing Query {query_id} (CHUNKED)")
     print(f"{'='*60}")
     
+    output_dir = project_root / "data"
+    output_dir.mkdir(exist_ok=True)
+    output_path = output_dir / output_filename
+
     try:
         # Fetch data in chunks
         rows = fetch_chunked_query(
@@ -197,10 +203,23 @@ def fetch_and_save_chunked(
         if len(df) < initial_count:
             print(f"   ℹ Removed {initial_count - len(df)} duplicate rows")
         
-        # Save to CSV
-        output_dir = project_root / "data"
-        output_dir.mkdir(exist_ok=True)
-        output_path = output_dir / output_filename
+        # Incremental: merge with existing file so we keep full history
+        if merge_with_existing and output_path.exists() and output_path.stat().st_size > 0:
+            try:
+                existing = pd.read_csv(output_path)
+                key_cols = [c for c in ["blockchain", "project_contract_address", "block_date"] if c in existing.columns and c in df.columns]
+                if not key_cols:
+                    key_cols = list(existing.columns[:3]) if len(existing.columns) >= 3 else list(existing.columns)
+                combined = pd.concat([existing, df], ignore_index=True)
+                before = len(combined)
+                combined = combined.drop_duplicates(subset=key_cols, keep="last")
+                if len(combined) < before:
+                    print(f"   ℹ Merged with existing: {len(existing):,} + {len(df):,} → {len(combined):,} (removed {before - len(combined)} duplicates)")
+                else:
+                    print(f"   ℹ Merged with existing: {len(existing):,} + {len(df):,} → {len(combined):,}")
+                df = combined
+            except Exception as e:
+                print(f"   ⚠ Could not merge with existing file: {e}. Overwriting.")
         
         df.to_csv(output_path, index=False)
         

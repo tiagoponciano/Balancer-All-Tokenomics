@@ -6,8 +6,14 @@ import os
 from dotenv import load_dotenv
 import io
 
-# Load environment variables
+# Load environment variables (cwd and project root so Streamlit finds .env)
 load_dotenv()
+try:
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.dirname(_script_dir)
+    load_dotenv(os.path.join(_project_root, ".env"))
+except Exception:
+    pass
 
 # Supabase configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -1910,6 +1916,30 @@ def apply_date_filter(df, year, quarter_months):
 MAIN_DATA_FILENAME = 'Balancer-All-Tokenomics.csv'
 BAL_EMISSIONS_FILENAME = 'BAL_Emissions_by_GaugePool.csv'
 
+# NEON/Postgres: table name used by service/upload_to_neon.py
+NEON_TABLE_MAIN = "tokenomics"
+
+
+def _load_data_from_neon():
+    """Load main tokenomics data from NEON (or any Postgres) if DATABASE_URL is set. Returns DataFrame or None."""
+    url = os.getenv("DATABASE_URL")
+    if not url or not url.strip():
+        return None
+    try:
+        from sqlalchemy import create_engine
+    except ImportError:
+        return None
+    try:
+        if "sslmode" not in url:
+            url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
+        engine = create_engine(url)
+        df = pd.read_sql(f"SELECT * FROM {NEON_TABLE_MAIN}", engine)
+        if df is not None and not df.empty:
+            return df
+    except Exception:
+        pass
+    return None
+
 
 @st.cache_data
 def load_bal_emissions_daily(_merge_by_gauge=True):
@@ -2111,31 +2141,48 @@ def _get_possible_data_dirs():
     ]
 
 
+def _set_data_source(source: str):
+    """Record data source in session state so UI can show it."""
+    try:
+        st.session_state["tokenomics_data_source"] = source
+    except Exception:
+        pass
+
+
 @st.cache_data
 def load_data():
-    """Load main data: Balancer-All-Tokenomics.csv. Prefer local file (same as notebook) so totals match; else Supabase. Fallback: balancer_v2_merged.csv, balancer_v2_master.csv."""
+    """Load main data: Balancer-All-Tokenomics. Prefer NEON (DATABASE_URL) if set; then local CSV; else Supabase; fallback: balancer_v2_merged / master."""
     try:
+        # 1) NEON/Postgres (no size limit; monthly upload keeps data fresh)
+        df = _load_data_from_neon()
+        if df is not None and not df.empty:
+            _set_data_source("NEON")
+            return _process_main_data(df)
+
         cwd = os.getcwd()
         possible_data_dirs = _get_possible_data_dirs()
-        # Prefer local Balancer-All-Tokenomics.csv so Total BAL Emitted (and other metrics) match notebook / CSV totals
+        # 2) Prefer local Balancer-All-Tokenomics.csv so Total BAL Emitted (and other metrics) match notebook / CSV totals
         for data_dir in possible_data_dirs:
             path = os.path.join(os.path.abspath(data_dir), MAIN_DATA_FILENAME)
             if os.path.exists(path) and os.path.getsize(path) > 100:
                 df = pd.read_csv(path)
                 if df is not None and not df.empty:
+                    _set_data_source("Local CSV")
                     return _process_main_data(df)
 
         df = download_csv_from_supabase(MAIN_DATA_FILENAME)
         if df is not None and not df.empty:
+            _set_data_source("Supabase")
             return _process_main_data(df)
 
         filenames = ['balancer_v2_merged.csv', 'balancer_v2_master.csv']
         df = None
         for fn in filenames:
             df = download_csv_from_supabase(fn)
-            if df is not None and not df.empty:
-                break
         if df is not None and not df.empty:
+            break
+        if df is not None and not df.empty:
+            _set_data_source("Supabase (fallback)")
             return _process_merged_data(df)
 
         file_paths = []
@@ -2156,6 +2203,7 @@ def load_data():
                 if os.path.exists(abs_path) and os.path.getsize(abs_path) > 100:
                     df = pd.read_csv(abs_path)
                     if df is not None and not df.empty:
+                        _set_data_source("Local CSV (fallback)")
                         return _process_merged_data(df)
             except Exception:
                 continue
@@ -2171,6 +2219,18 @@ def load_data():
     except Exception as e:
         st.error(f"❌ Error loading data: {str(e)}")
         return pd.DataFrame()
+
+
+def show_data_source_badge():
+    """Show in the sidebar where the main tokenomics data was loaded from (NEON, Local CSV, Supabase)."""
+    source = st.session_state.get("tokenomics_data_source")
+    if not source:
+        return
+    if source == "NEON":
+        st.sidebar.success("📊 **Data:** NEON")
+    else:
+        st.sidebar.caption(f"📊 Data: {source}")
+
 
 def classify_pools(df):
     """Build pool_category (Legitimate / Mercenary / Undefined) from dao_profit, revenue, incentives, ROI."""

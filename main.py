@@ -37,13 +37,10 @@ QUERIES = {
 CHUNKED_QUERY_ID = 6644710
 CHUNK_DAYS = 45  # Fetch 45 days at a time (smaller chunks reduce timeouts)
 
-def run_dune_queries(start_date: str = None, end_date: str = None):
+def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_with_existing: bool = False):
     """
-    Processes all Dune queries
-    
-    Args:
-        start_date: Start date in format 'YYYY-MM-DD' (only for chunked query 6644710)
-        end_date: End date in format 'YYYY-MM-DD' (only for chunked query 6644710)
+    Processes all Dune queries.
+    When merge_vebal_with_existing=True (incremental run), new veBAL chunk is merged with existing veBAL.csv.
     """
     # Use provided dates or defaults
     start_date = start_date or DEFAULT_START_DATE
@@ -67,7 +64,8 @@ def run_dune_queries(start_date: str = None, end_date: str = None):
                 end_date=end_date,
                 output_filename=output_file,
                 project_root=PROJECT_ROOT,
-                chunk_days=CHUNK_DAYS
+                chunk_days=CHUNK_DAYS,
+                merge_with_existing=merge_vebal_with_existing,
             )
         else:
             # Use regular fetching for other queries
@@ -167,26 +165,66 @@ def run_create_final_dataset():
     from create_final_dataset import main as final_main
     final_main()
 
+
+def run_upload_to_neon():
+    """Upload final CSVs to NEON (or any Postgres) for the Streamlit app."""
+    print("\n" + "=" * 60)
+    print("Uploading tokenomics data to NEON")
+    print("=" * 60 + "\n")
+    try:
+        from upload_to_neon import main as neon_main
+        neon_main()
+    except Exception as e:
+        print(f"❌ Upload failed: {e}")
+        raise
+
 def parse_args():
-    """Parse command line arguments for dates"""
+    """Parse command line arguments for dates."""
     start_date = None
     end_date = None
-    
+
     for i, arg in enumerate(sys.argv):
         if arg == "--start-date" and i + 1 < len(sys.argv):
             start_date = sys.argv[i + 1]
         elif arg == "--end-date" and i + 1 < len(sys.argv):
             end_date = sys.argv[i + 1]
-    
+
     return start_date, end_date
+
+
+def get_date_range_for_run(start_date=None, end_date=None):
+    """
+    Resolve (start_date, end_date, is_incremental) for Dune fetch.
+    If both dates are None, use incremental range: from the day after the last
+    existing record (in NEON or local CSV) to today. is_incremental=True means
+    we should merge new veBAL with existing veBAL.csv.
+    """
+    if start_date is not None and end_date is not None:
+        return start_date, end_date, False
+    if start_date is not None:
+        return start_date, end_date or datetime.now().strftime("%Y-%m-%d"), False
+    if end_date is not None:
+        return start_date or DEFAULT_START_DATE, end_date, False
+    # No dates given: use incremental (last date in data + 1 → today)
+    use_incremental = os.getenv("INCREMENTAL", "1").strip().lower() in ("1", "true", "yes")
+    if use_incremental:
+        sys.path.insert(0, str(SCRIPT_DIR))
+        from get_last_date import get_incremental_date_range
+        start_date, end_date, last = get_incremental_date_range(default_start=DEFAULT_START_DATE)
+        if last:
+            print(f"📅 Incremental run: last existing date = {last} → fetching {start_date} to {end_date}")
+        return start_date, end_date, True
+    return DEFAULT_START_DATE, end_date or datetime.now().strftime("%Y-%m-%d"), False
 
 def main():
     """Main function that processes all data sources"""
     start_date, end_date = parse_args()
-    
+    # Resolve date range (incremental: from day after last record to today when no dates given)
+    start_date, end_date, is_incremental = get_date_range_for_run(start_date, end_date)
+
     if len(sys.argv) > 1:
         if sys.argv[1] == "--dune-only":
-            run_dune_queries(start_date, end_date)
+            run_dune_queries(start_date, end_date, merge_vebal_with_existing=is_incremental)
             return
         elif sys.argv[1] == "--hiddenhand-only":
             run_hiddenhand()
@@ -209,6 +247,9 @@ def main():
         elif sys.argv[1] == "--create-final":
             run_create_final_dataset()
             return
+        elif sys.argv[1] == "--upload-to-neon":
+            run_upload_to_neon()
+            return
         elif sys.argv[1] == "--help" or sys.argv[1] == "-h":
             print("Usage: python main.py [options]")
             print("\nOptions:")
@@ -221,17 +262,19 @@ def main():
             print("  --classify-core-pools     - Classifies pools as core or non-core")
             print("  --enrich-bribes-fsn       - Enriches Bribes with FSN data (blockchain + gauge)")
             print("  --create-final            - Creates final dataset (Balancer-All-Tokenomics.csv)")
+            print("  --upload-to-neon          - Upload final CSV to NEON/Postgres (set DATABASE_URL in .env)")
             print("  --help, -h                - Shows this message")
             print("\nDate Parameters (for chunked query 6644710):")
-            print("  --start-date YYYY-MM-DD   - Set start date (default: 2024-01-01 or START_DATE env var)")
-            print("  --end-date YYYY-MM-DD     - Set end date (default: today or END_DATE env var)")
+            print("  --start-date YYYY-MM-DD   - Set start date (default: incremental = day after last data)")
+            print("  --end-date YYYY-MM-DD     - Set end date (default: today)")
+            print("  INCREMENTAL=0             - Disable incremental; use START_DATE/2024-01-01 to today")
             print("\nExamples:")
+            print("  python main.py --dune-only                    # incremental: from last date+1 to today")
             print("  python main.py --dune-only --start-date 2024-01-01 --end-date 2026-02-08")
-            print("  python main.py --start-date 2024-01-01 --end-date 2024-12-31")
             return
     
-    # Run all steps
-    run_dune_queries(start_date, end_date)
+    # Run all steps (merge new veBAL with existing when incremental)
+    run_dune_queries(start_date, end_date, merge_vebal_with_existing=is_incremental)
     run_hiddenhand()
     run_merge_bribes()  # Merge Dune Bribes + HiddenHand → Bribes_enriched
     run_enrich_bribes_with_fsn()  # Enrich Bribes_enriched with FSN data
@@ -239,6 +282,11 @@ def main():
     run_merge_votes_bribes()
     run_classify_core_pools()
     run_create_final_dataset()
+    # Optional: upload to NEON so the app can load from DB (no large CSV on Supabase)
+    if os.getenv("DATABASE_URL"):
+        run_upload_to_neon()
+    else:
+        print("\n💡 Set DATABASE_URL in .env to auto-upload to NEON after each run.")
     
     print("\n" + "=" * 60)
     print("All data collection and processing completed!")
