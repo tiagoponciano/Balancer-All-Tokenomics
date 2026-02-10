@@ -2179,8 +2179,8 @@ def load_data():
         df = None
         for fn in filenames:
             df = download_csv_from_supabase(fn)
-        if df is not None and not df.empty:
-            break
+            if df is not None and not df.empty:
+                break
         if df is not None and not df.empty:
             _set_data_source("Supabase (fallback)")
             return _process_merged_data(df)
