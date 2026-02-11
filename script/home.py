@@ -121,7 +121,13 @@ if (window.MutationObserver) {
 </script>
 """, height=0)
 
-df = utils.load_data()
+try:
+    df = utils.load_data()
+except Exception as e:
+    st.error("Failed to load data. See details below.")
+    st.exception(e)
+    st.stop()
+
 if df.empty:
     st.stop()
 

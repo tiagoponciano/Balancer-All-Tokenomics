@@ -1928,6 +1928,7 @@ def _load_data_from_neon_views():
     Load from NEON materialized views (mv_pool_summary, mv_monthly_series) so the app
     only fetches pre-aggregated data. Returns a DataFrame with one row per (month, pool);
     block_date is set to first of month. Returns None if views are missing or on error.
+    Raises a clear error if USE_NEON_VIEWS is set but views don't exist (caller should handle).
     """
     url = os.getenv("DATABASE_URL")
     if not url or not url.strip():
@@ -1936,6 +1937,10 @@ def _load_data_from_neon_views():
         from sqlalchemy import create_engine
     except ImportError:
         return None
+    views_help = (
+        "Create the materialized views in NEON: open your NEON project → SQL Editor, "
+        "then run the script in sql/neon_materialized_views.sql (replace 'balancer_data' with your table name if needed)."
+    )
     try:
         if "sslmode" not in url:
             url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
@@ -1943,7 +1948,11 @@ def _load_data_from_neon_views():
         pools = pd.read_sql('SELECT * FROM mv_pool_summary', engine)
         monthly = pd.read_sql('SELECT * FROM mv_monthly_series', engine)
         if pools.empty or monthly.empty:
-            return None
+            raise RuntimeError(
+                "Materialized views exist but returned no data. Populate your base table and run "
+                "REFRESH MATERIALIZED VIEW mv_pool_summary; REFRESH MATERIALIZED VIEW mv_monthly_series; in NEON. "
+                + views_help
+            )
         # Merge so we have month + pool + category + metrics
         df = monthly.merge(
             pools[["pool_symbol", "pool_category", "blockchain", "version", "is_core_pool"]],
@@ -1968,9 +1977,13 @@ def _load_data_from_neon_views():
         if "pool_type" not in df.columns:
             df["pool_type"] = ""
         return df
-    except Exception:
-        pass
-    return None
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not load from NEON materialized views (mv_pool_summary, mv_monthly_series). "
+            f"Original error: {e}. {views_help}"
+        ) from e
 
 
 def _load_data_from_neon():
