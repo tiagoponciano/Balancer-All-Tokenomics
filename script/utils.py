@@ -2373,6 +2373,8 @@ def show_data_load_debug():
         st.write(f"**Rows:** {info.get('rows', 0):,}")
         if info.get("message"):
             st.caption(f"Message: {info['message']}")
+        if info.get("database_url_set") and not info.get("use_neon_views") and info.get("source") == "NEON (full table)":
+            st.warning("Set **USE_NEON_VIEWS=1** in Streamlit Cloud secrets to use materialized views and avoid memory limits.")
         st.caption("Check Streamlit Cloud logs for [Data load] lines.")
 
 
