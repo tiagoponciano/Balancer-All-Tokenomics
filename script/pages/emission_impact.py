@@ -211,6 +211,9 @@ reduction_pct = st.sidebar.number_input(
 
 reduction_factor = (100 - reduction_pct) / 100  # Convert to factor (50% reduction = 0.5 factor)
 
+# Total Revenue scales 1:1 with BAL emissions (less emissions → less revenue)
+revenue_sensitivity = 1.0
+
 # Toggle for core pools only
 core_only = st.sidebar.checkbox(
     "Allow emissions only for Core Pools",
@@ -275,8 +278,8 @@ if core_only and 'is_core_pool' in df_display.columns:
         st.warning("No core pools in the selected filters. Adjust filters or turn off «Allow emissions only for Core Pools».")
         st.stop()
 
-# Apply scenario (reduction % + core-only) so emission sections reflect the filters
-df_scenario = utils.calculate_emission_reduction_impact(df_display, reduction_factor, core_only=core_only)
+# Apply scenario (reduction % + core-only + revenue sensitivity) so emission sections reflect the filters
+df_scenario = utils.calculate_emission_reduction_impact(df_display, reduction_factor, core_only=core_only, revenue_sensitivity=revenue_sensitivity)
 # Column to use for emissions in breakdowns: scenario (reduced + core-only) so filters are visible
 bal_col = 'reduced_bal_emitted' if 'reduced_bal_emitted' in df_scenario.columns else 'bal_emited_votes'
 df_emissions = df_scenario.copy()
@@ -668,7 +671,7 @@ if core_only:
 st.markdown(f"### 📈 Impact Analysis: {scenario_name}")
 
 # Calculate impact with new parameters
-df_scenario = utils.calculate_emission_reduction_impact(df_display, reduction_factor, core_only=core_only)
+df_scenario = utils.calculate_emission_reduction_impact(df_display, reduction_factor, core_only=core_only, revenue_sensitivity=revenue_sensitivity)
 
 # Normalize pool_category for scenario summary (same mapping as baseline)
 df_scenario_norm = df_scenario.copy()
@@ -681,10 +684,14 @@ else:
     )
 agg_dict = {
     'reduced_incentives': 'sum',
-    'protocol_fee_amount_usd': 'sum',
     'new_dao_profit': 'sum',
     'direct_incentives': 'sum'
 }
+# Use scenario_revenue (changes with emissions when sensitivity > 0) for Total Revenue in scenario
+if 'scenario_revenue' in df_scenario_norm.columns:
+    agg_dict['scenario_revenue'] = 'sum'
+elif 'protocol_fee_amount_usd' in df_scenario_norm.columns:
+    agg_dict['protocol_fee_amount_usd'] = 'sum'
 if 'bal_emited_votes' in df_scenario_norm.columns:
     agg_dict['bal_emited_votes'] = 'sum'
 if 'reduced_bal_emitted' in df_scenario_norm.columns:
@@ -709,7 +716,9 @@ scenario_summary['profit_change_pct'] = (scenario_summary['profit_change'] / bas
 column_mapping = {}
 if 'reduced_incentives' in scenario_summary.columns:
     column_mapping['reduced_incentives'] = 'Reduced Incentives'
-if 'protocol_fee_amount_usd' in scenario_summary.columns:
+if 'scenario_revenue' in scenario_summary.columns:
+    column_mapping['scenario_revenue'] = 'Total Revenue'
+elif 'protocol_fee_amount_usd' in scenario_summary.columns:
     column_mapping['protocol_fee_amount_usd'] = 'Total Revenue'
 if 'new_dao_profit' in scenario_summary.columns:
     column_mapping['new_dao_profit'] = 'New DAO Profit'

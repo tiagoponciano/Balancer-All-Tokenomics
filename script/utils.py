@@ -2974,7 +2974,7 @@ def _normalize_is_core_pool(series):
     return s.map(to_int).astype(int)
 
 
-def calculate_emission_reduction_impact(df, reduction_factor, core_only=False):
+def calculate_emission_reduction_impact(df, reduction_factor, core_only=False, revenue_sensitivity=0.0):
     """
     Calculate the impact of emission reduction on pools.
     
@@ -2982,6 +2982,8 @@ def calculate_emission_reduction_impact(df, reduction_factor, core_only=False):
         df: DataFrame with pool data
         reduction_factor: Factor to reduce emissions (0.5 = 50% reduction, keep 50%)
         core_only: If True, only core pools receive emissions (non-core get 0)
+        revenue_sensitivity: 0-1. When > 0, revenue is assumed to drop with emissions
+            (e.g. 0.5 = 50% emission cut → 25% revenue cut). 0 = revenue unchanged.
     
     Returns:
         DataFrame with reduced emissions and updated profits
@@ -3005,7 +3007,8 @@ def calculate_emission_reduction_impact(df, reduction_factor, core_only=False):
         emission_mask = pd.Series([True] * len(df_scenario), index=df_scenario.index)
     
     # Calculate reduced BAL emissions (use bal_emited_votes from data, same as home page)
-    bal = pd.to_numeric(df_scenario.get('bal_emited_votes', 0), errors='coerce').fillna(0)
+    bal_col = df_scenario['bal_emited_votes'] if 'bal_emited_votes' in df_scenario.columns else pd.Series(0, index=df_scenario.index)
+    bal = pd.to_numeric(bal_col, errors='coerce').fillna(0)
     df_scenario['reduced_bal_emitted'] = (bal.where(emission_mask, 0) * reduction_factor)
     
     # Calculate reduced incentives (proportional to BAL emissions)
@@ -3019,16 +3022,27 @@ def calculate_emission_reduction_impact(df, reduction_factor, core_only=False):
             ) * reduction_factor
         else:
             # Reduce incentives proportionally to BAL reduction
-            bal_reduction_ratio = df_scenario['reduced_bal_emitted'] / df_scenario['bal_emited_votes'].replace(0, 1)
+            bal_reduction_ratio = df_scenario['reduced_bal_emitted'] / bal.replace(0, 1)
             bal_reduction_ratio = bal_reduction_ratio.fillna(0).replace([float('inf'), -float('inf')], 0)
             df_scenario['reduced_incentives'] = df_scenario['direct_incentives'] * bal_reduction_ratio
     else:
         df_scenario['reduced_incentives'] = 0
     
-    # Calculate new DAO profit
-    if 'sim_dao_revenue' in df_scenario.columns:
-        df_scenario['new_dao_profit'] = df_scenario['sim_dao_revenue'] - df_scenario['reduced_incentives']
+    # Scenario revenue: when revenue_sensitivity > 0, assume revenue drops with emissions
+    # revenue_scenario = revenue_baseline * (1 - (1 - reduction_factor) * revenue_sensitivity)
+    # e.g. 50% emission cut (reduction_factor=0.5), sensitivity=0.5 → revenue * 0.75 (25% drop)
+    rev_col = 'protocol_fee_amount_usd' if 'protocol_fee_amount_usd' in df_scenario.columns else 'sim_dao_revenue'
+    if rev_col in df_scenario.columns:
+        base_rev = pd.to_numeric(df_scenario[rev_col], errors='coerce').fillna(0)
+        if revenue_sensitivity > 0:
+            rev_factor = 1 - (1 - reduction_factor) * float(revenue_sensitivity)
+            df_scenario['scenario_revenue'] = base_rev * rev_factor
+        else:
+            df_scenario['scenario_revenue'] = base_rev
     else:
-        df_scenario['new_dao_profit'] = df_scenario['protocol_fee_amount_usd'] - df_scenario['reduced_incentives']
+        df_scenario['scenario_revenue'] = 0
+    
+    # Calculate new DAO profit: scenario_revenue - reduced_incentives
+    df_scenario['new_dao_profit'] = df_scenario['scenario_revenue'] - df_scenario['reduced_incentives']
     
     return df_scenario
