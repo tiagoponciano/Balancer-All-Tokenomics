@@ -185,7 +185,7 @@ if df.empty:
 col_title, col_logout = st.columns([1, 0.1])
 with col_title:
     st.markdown('<div class="page-title">Pool Classification Analysis</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-subtitle">From Balancer-All-Tokenomics.csv • Legitimate vs Mercenary • Top/Worst 20 by protocol fees</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">From Balancer-All-Tokenomics.csv • Legitimate / Sustainable / Mercenary / Undefined • Top/Worst 20 by protocol fees</div>', unsafe_allow_html=True)
 with col_logout:
     utils.show_logout_button()
 
@@ -194,31 +194,17 @@ st.markdown("---")
 # Add explanation section (same as emission_impact.py)
 st.markdown("### 📖 Understanding Pool Classification")
 
-with st.expander("ℹ️ What are Legitimate vs Mercenary Pools?", expanded=False):
+with st.expander("ℹ️ What are Legitimate, Sustainable, Mercenary and Undefined Pools?", expanded=False):
     st.markdown("""
-    **Legitimate Pools:**
-    - Pools that generate positive DAO profit (revenue > bribes)
-    - Have good emissions ROI (revenue/bribes > 1.0)
-    - Generate meaningful revenue (>$10k) even without bribes
-    - Core pools with ROI > 0.7 are typically classified as legitimate
+    **Legitimate:** Top pools (high DAO profit, ROI > 1.5x, low incentive dependency) or core with ROI > 1.2x; no incentives and revenue > $15k.
     
-    **Mercenary Pools:**
-    - Pools that generate negative DAO profit (revenue < bribes)
-    - Have poor emissions ROI (revenue/bribes < 0.5)
-    - Highly dependent on bribes (>80% of revenue comes from bribes)
-    - Generate little to no revenue without bribes
+    **Sustainable:** Positive but not elite (DAO profit ≥ 0, ROI ≥ 1.0); or no incentives with revenue in (0, $15k].
     
-    **Undefined Pools:**
-    - Pools that don't clearly fit into either category
-    - May have no bribes but also low revenue
-    - Require further analysis to classify
+    **Mercenary:** Zero revenue, ROI < 0.5, negative DAO profit, incentive dependency > 80%, or revenue < $5k.
     
-    **Core Pools:**
-    - Pools designated as "core" by the protocol
-    - Typically receive priority in emissions distribution
-    - May have different revenue distribution rules
+    **Undefined:** Don't clearly fit other categories.
     
-    **Note:** This analysis focuses on bribes (voting incentives). Direct incentives are not considered in this classification.
+    **Note:** Classification uses aggregate ROI (total revenue / total incentives) and direct incentives.
     """)
 
 st.markdown("---")
@@ -262,19 +248,19 @@ if total_bal > 0:
 
 st.markdown("### 📊 Classification Summary")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
+
+def _count(cat):
+    return category_stats.loc[cat, 'Pool Count'] if cat in category_stats.index else 0
 
 with col1:
-    legit_count = category_stats.loc['Legitimate', 'Pool Count'] if 'Legitimate' in category_stats.index else 0
-    st.metric("Legitimate Pools", f"{legit_count:.0f}")
-
+    st.metric("Legitimate Pools", f"{_count('Legitimate'):.0f}")
 with col2:
-    merc_count = category_stats.loc['Mercenary', 'Pool Count'] if 'Mercenary' in category_stats.index else 0
-    st.metric("Mercenary Pools", f"{merc_count:.0f}")
-
+    st.metric("Sustainable Pools", f"{_count('Sustainable'):.0f}")
 with col3:
-    undef_count = category_stats.loc['Undefined', 'Pool Count'] if 'Undefined' in category_stats.index else 0
-    st.metric("Undefined Pools", f"{undef_count:.0f}")
+    st.metric("Mercenary Pools", f"{_count('Mercenary'):.0f}")
+with col4:
+    st.metric("Undefined Pools", f"{_count('Undefined'):.0f}")
 
 st.markdown("---")
 
@@ -327,7 +313,7 @@ else:
     pivot_incentives = pd.DataFrame()
     pivot_profit = pd.DataFrame()
 
-colors = {'Legitimate': '#2ecc71', 'Mercenary': '#e74c3c', 'Undefined': '#95a5a6'}
+colors = {'Legitimate': '#2ecc71', 'Sustainable': '#3498db', 'Mercenary': '#e74c3c', 'Undefined': '#95a5a6'}
 
 if pivot_incentives.empty or pivot_profit.empty:
     st.info("No data available for historical distribution charts.")

@@ -231,29 +231,23 @@ st.markdown("---")
 # Explanation section at the beginning
 st.markdown("### 📖 Understanding Pool Classification")
 
-with st.expander("ℹ️ What are Legitimate vs Mercenary Pools?", expanded=False):
+with st.expander("ℹ️ What are Legitimate, Sustainable, Mercenary and Undefined Pools?", expanded=False):
     st.markdown("""
     **Legitimate Pools:**
-    - Pools that generate positive DAO profit (revenue > incentives)
-    - Have good emissions ROI (revenue/incentives > 1.0)
-    - Generate meaningful revenue (>$10k) even without incentives
-    - Core pools with ROI > 0.7 are typically classified as legitimate
+    - Top pools: high DAO profit (>$5k), ROI > 1.5x, low incentive dependency (<50%), or core pools with ROI > 1.2x
+    - No incentives: revenue > $15k
+    
+    **Sustainable Pools:**
+    - Positive but not elite: DAO profit ≥ 0, aggregate ROI ≥ 1.0
+    - No incentives: revenue > 0 but ≤ $15k
     
     **Mercenary Pools:**
-    - Pools that generate negative DAO profit (revenue < incentives)
-    - Have poor emissions ROI (revenue/incentives < 0.5)
-    - Highly dependent on incentives (>80% of revenue comes from incentives)
-    - Generate little to no revenue without incentives
+    - Zero revenue, or ROI < 0.5, or negative DAO profit, or incentive dependency > 80%, or revenue < $5k
     
     **Undefined Pools:**
-    - Pools that don't clearly fit into either category
-    - May have no incentives but also low revenue
-    - Require further analysis to classify
+    - Don't clearly fit other categories (e.g. no incentives and no revenue)
     
-    **Core Pools:**
-    - Pools designated as "core" by the protocol
-    - Typically receive priority in emissions distribution
-    - May have different revenue distribution rules
+    **Core Pools:** Designated as "core" by the protocol; may receive priority in emissions.
     """)
 
 st.markdown("---")
@@ -273,6 +267,14 @@ else:
     # 'all' mode - show everything
     df_display = df_sim.copy()
 
+# When "Allow emissions only for Core Pools" is on, filter the entire page to core pools only
+if core_only and 'is_core_pool' in df_display.columns:
+    core_mask = pd.to_numeric(df_display['is_core_pool'], errors='coerce').fillna(0).astype(int) == 1
+    df_display = df_display.loc[core_mask].copy()
+    if df_display.empty:
+        st.warning("No core pools in the selected filters. Adjust filters or turn off «Allow emissions only for Core Pools».")
+        st.stop()
+
 # Apply scenario (reduction % + core-only) so emission sections reflect the filters
 df_scenario = utils.calculate_emission_reduction_impact(df_display, reduction_factor, core_only=core_only)
 # Column to use for emissions in breakdowns: scenario (reduced + core-only) so filters are visible
@@ -283,7 +285,7 @@ df_emissions[bal_col] = df_scenario['reduced_bal_emitted'] if 'reduced_bal_emitt
 # ============================================================================
 # EMISSIONS ANALYSIS: LEGITIMATE VS MERCENARY
 # ============================================================================
-st.markdown("### 📊 Emissions Analysis: Legitimate vs Mercenary Pools")
+st.markdown("### 📊 Emissions Analysis by Pool Category (Legitimate / Sustainable / Mercenary / Undefined)")
 if reduction_pct > 0 or core_only:
     st.caption(f"Showing scenario: {reduction_pct}% reduction" + (" • Core pools only" if core_only else ""))
 
@@ -301,46 +303,29 @@ if total_emissions > 0:
 else:
     emissions_by_category['Percentage'] = 0
 
-# Display aggregated values
-col1, col2, col3, col4 = st.columns(4)
+# Display aggregated values (5 columns: Legitimate, Sustainable, Mercenary, Undefined, Total)
+col1, col2, col3, col4, col5 = st.columns(5)
 
-legitimate_emissions = emissions_by_category.loc['Legitimate', 'Total BAL Emitted'] if 'Legitimate' in emissions_by_category.index else 0
-legitimate_pct = emissions_by_category.loc['Legitimate', 'Percentage'] if 'Legitimate' in emissions_by_category.index else 0
-mercenary_emissions = emissions_by_category.loc['Mercenary', 'Total BAL Emitted'] if 'Mercenary' in emissions_by_category.index else 0
-mercenary_pct = emissions_by_category.loc['Mercenary', 'Percentage'] if 'Mercenary' in emissions_by_category.index else 0
+def _cat_metric(cat, index):
+    val = index.loc[cat, 'Total BAL Emitted'] if cat in index else 0
+    pct = index.loc[cat, 'Percentage'] if cat in index else 0
+    return val, pct
+
+legitimate_emissions, legitimate_pct = _cat_metric('Legitimate', emissions_by_category)
+sustainable_emissions, sustainable_pct = _cat_metric('Sustainable', emissions_by_category)
+mercenary_emissions, mercenary_pct = _cat_metric('Mercenary', emissions_by_category)
+undefined_emissions, undefined_pct = _cat_metric('Undefined', emissions_by_category)
 
 with col1:
-    st.metric(
-        "Legitimate Emissions",
-        f"{legitimate_emissions:,.0f} BAL",
-        f"{legitimate_pct:.1f}%",
-        help="Total BAL emitted to legitimate pools"
-    )
-
+    st.metric("Legitimate Emissions", f"{legitimate_emissions:,.0f} BAL", f"{legitimate_pct:.1f}%", help="Total BAL emitted to legitimate pools")
 with col2:
-    st.metric(
-        "Mercenary Emissions",
-        f"{mercenary_emissions:,.0f} BAL",
-        f"{mercenary_pct:.1f}%",
-        help="Total BAL emitted to mercenary pools"
-    )
-
+    st.metric("Sustainable Emissions", f"{sustainable_emissions:,.0f} BAL", f"{sustainable_pct:.1f}%", help="Total BAL emitted to sustainable pools")
 with col3:
-    undefined_emissions = emissions_by_category.loc['Undefined', 'Total BAL Emitted'] if 'Undefined' in emissions_by_category.index else 0
-    undefined_pct = emissions_by_category.loc['Undefined', 'Percentage'] if 'Undefined' in emissions_by_category.index else 0
-    st.metric(
-        "Undefined Emissions",
-        f"{undefined_emissions:,.0f} BAL",
-        f"{undefined_pct:.1f}%",
-        help="Total BAL emitted to undefined pools"
-    )
-
+    st.metric("Mercenary Emissions", f"{mercenary_emissions:,.0f} BAL", f"{mercenary_pct:.1f}%", help="Total BAL emitted to mercenary pools")
 with col4:
-    st.metric(
-        "Total Emissions",
-        f"{total_emissions:,.0f} BAL",
-        help="Total BAL emitted across all pools"
-    )
+    st.metric("Undefined Emissions", f"{undefined_emissions:,.0f} BAL", f"{undefined_pct:.1f}%", help="Total BAL emitted to undefined pools")
+with col5:
+    st.metric("Total Emissions", f"{total_emissions:,.0f} BAL", help="Total BAL emitted across all pools")
 
 # Display detailed table
 st.markdown("#### 📋 Detailed Breakdown")
@@ -352,7 +337,7 @@ st.dataframe(emissions_display, use_container_width=True, hide_index=False)
 # Temporal chart for emissions by category
 col_chart_title_legit, col_toggle_legit = st.columns([1, 0.15])
 with col_chart_title_legit:
-    st.markdown("#### 📈 Emissions Over Time: Legitimate vs Mercenary")
+    st.markdown("#### 📈 Emissions Over Time by Category")
 with col_toggle_legit:
     # Button text changes based on current state
     button_text_legit = "Absolute" if st.session_state.show_legit_mercenary_percentage else "%"
@@ -398,6 +383,7 @@ fig_legit_mercenary = go.Figure()
 
 colors = {
     'Legitimate': '#2ecc71',
+    'Sustainable': '#3498db',
     'Mercenary': '#e74c3c',
     'Undefined': '#95a5a6'
 }

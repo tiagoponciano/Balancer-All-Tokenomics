@@ -1975,7 +1975,7 @@ def _load_data_from_neon_views():
                 + views_help
             )
         # Merge so we have month + pool + category + metrics (only bring pool-level cols from pools to avoid duplicate column names)
-        pool_cols = [c for c in ["pool_symbol", "pool_category", "blockchain", "version", "is_core_pool"] if c in pools.columns]
+        pool_cols = [c for c in ["pool_symbol", "pool_category", "blockchain", "version", "is_core_pool", "gauge_address"] if c in pools.columns]
         if "pool_symbol" not in pool_cols:
             raise RuntimeError("mv_pool_summary must have column pool_symbol. " + views_help)
         df = monthly.merge(pools[pool_cols], on="pool_symbol", how="left", suffixes=("", "_pool"))
@@ -2013,6 +2013,13 @@ def _load_data_from_neon_views():
             df["gauge_address"] = ""
         if "pool_type" not in df.columns:
             df["pool_type"] = ""
+        # Prefer pool-level gauge_address if we have it from merge (gauge_address_pool)
+        if "gauge_address_pool" in df.columns:
+            ga = df["gauge_address_pool"].fillna(df.get("gauge_address", "")).astype(str).str.strip()
+            df["gauge_address"] = ga.where(ga != "", df.get("gauge_address", ""))
+            df = df.drop(columns=["gauge_address_pool"], errors="ignore")
+        if "gauge_address" not in df.columns:
+            df["gauge_address"] = ""
         return df
     except RuntimeError:
         raise
