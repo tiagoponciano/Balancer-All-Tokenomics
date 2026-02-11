@@ -10,16 +10,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Check authentication
-if not utils.check_authentication():
-    st.stop()
+# Wrap app startup + data load so any error shows details instead of generic "Oh no"
+try:
+    # Check authentication
+    if not utils.check_authentication():
+        st.stop()
 
-utils.inject_css()
+    utils.inject_css()
 
-# Script para aplicar IDs específicos aos botões
-import streamlit.components.v1 as components
+    # Script para aplicar IDs específicos aos botões
+    import streamlit.components.v1 as components
 
-components.html("""
+    components.html("""
 <script>
 console.log('[Button IDs] Script carregado via components.html (home.py)!');
 
@@ -119,16 +121,21 @@ if (window.MutationObserver) {
     }
 }
 </script>
-""", height=0)
+    """, height=0)
 
-try:
-    df = utils.load_data()
+    try:
+        df = utils.load_data()
+    except Exception as e:
+        st.error("Failed to load data. See details below.")
+        st.exception(e)
+        st.stop()
+
+    if df.empty:
+        st.stop()
+
 except Exception as e:
-    st.error("Failed to load data. See details below.")
+    st.error("Error running app. See details below.")
     st.exception(e)
-    st.stop()
-
-if df.empty:
     st.stop()
 
 # Show where data was loaded from (NEON / Local CSV / Supabase)
