@@ -1690,21 +1690,21 @@ def apply_version_filter(df, session_key='version_filter'):
     """
     if df.empty or 'version' not in df.columns:
         return df
-    
+
     if session_key not in st.session_state:
         st.session_state[session_key] = 'all'
-    
+
     version_filter = st.session_state[session_key]
-    
+
     if version_filter == 'all':
         return df
-    elif version_filter == 'v2':
-        # Version column contains integers (2 or 3), not strings
-        return df[df['version'] == 2].copy()
+    # Coerce to numeric so view data (version as "2"/"3") and full data (2/3) both work
+    version_num = pd.to_numeric(df['version'], errors='coerce').fillna(0).astype(int)
+    if version_filter == 'v2':
+        return df.loc[version_num == 2].copy()
     elif version_filter == 'v3':
-        # Version column contains integers (2 or 3), not strings
-        return df[df['version'] == 3].copy()
-    
+        return df.loc[version_num == 3].copy()
+
     return df
 
 
@@ -1762,29 +1762,29 @@ def apply_gauge_filter(df, session_key='gauge_filter'):
     """
     if df.empty or 'gauge_address' not in df.columns:
         return df
-    
+
     if session_key not in st.session_state:
         st.session_state[session_key] = 'all'
-    
+
     gauge_filter = st.session_state[session_key]
-    
+
     if gauge_filter == 'all':
         return df
-    elif gauge_filter == 'gauge':
-        # Filter pools that have gauge_address (not null, not empty, not 'nan')
-        return df[
-            df['gauge_address'].notna() & 
-            (df['gauge_address'] != '') &
-            (df['gauge_address'].astype(str).str.lower() != 'nan')
-        ].copy()
+
+    has_gauge = (
+        df['gauge_address'].notna()
+        & (df['gauge_address'].astype(str).str.strip() != '')
+        & (df['gauge_address'].astype(str).str.lower() != 'nan')
+    )
+    # When no rows have gauge (e.g. view data: we set gauge_address to ""), don't empty the table
+    if has_gauge.sum() == 0:
+        return df
+
+    if gauge_filter == 'gauge':
+        return df.loc[has_gauge].copy()
     elif gauge_filter == 'no_gauge':
-        # Filter pools that don't have gauge_address (null, empty, or 'nan')
-        return df[
-            df['gauge_address'].isna() | 
-            (df['gauge_address'] == '') |
-            (df['gauge_address'].astype(str).str.lower() == 'nan')
-        ].copy()
-    
+        return df.loc[~has_gauge].copy()
+
     return df
 
 
@@ -1985,7 +1985,15 @@ def _load_data_from_neon_views():
             df = df.drop(columns=["is_core_pool_pool"], errors="ignore")
         if "is_core_pool" not in df.columns:
             df["is_core_pool"] = 0
+        # Coerce to 0/1 so simulation mask_core (is_core_pool == 1) and incentives revenue work
+        df["is_core_pool"] = pd.to_numeric(df["is_core_pool"], errors="coerce").fillna(0).astype(int).clip(0, 1)
         df["block_date"] = pd.to_datetime(df["year_month"], errors="coerce")
+        # Timezone-naive for consistent date filtering (Year/Quarter)
+        try:
+            if pd.api.types.is_datetime64tz_dtype(df["block_date"]):
+                df["block_date"] = df["block_date"].dt.tz_localize(None)
+        except Exception:
+            pass
         df["direct_incentives"] = pd.to_numeric(df.get("bribe_amount_usd", 0), errors="coerce").fillna(0)
         df["protocol_fee_amount_usd"] = pd.to_numeric(df.get("protocol_fee_amount_usd", 0), errors="coerce").fillna(0)
         df["dao_profit_usd"] = df["protocol_fee_amount_usd"] - df["direct_incentives"]

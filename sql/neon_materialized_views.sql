@@ -15,7 +15,7 @@ WITH base AS (
     pool_symbol,
     MAX(blockchain) AS blockchain,
     MAX(version::text) AS version,
-    MAX(CASE WHEN COALESCE(core_non_core::text, '') IN ('true', '1', 't', 'yes') THEN 1 ELSE 0 END) AS is_core_pool,
+    MAX(CASE WHEN COALESCE(LOWER(TRIM(core_non_core::text)), '') IN ('true', '1', 't', 'yes') OR COALESCE(core_non_core::text, '') = 'True' THEN 1 ELSE 0 END) AS is_core_pool,
     SUM(COALESCE(bal_emited_votes, 0)::double precision) AS total_bal_emited_votes,
     SUM(COALESCE(protocol_fee_amount_usd, 0)::double precision) AS total_protocol_fee_usd,
     SUM(COALESCE(bribe_amount_usd, 0)::double precision) AS total_bribe_amount_usd,
@@ -78,7 +78,7 @@ SELECT
   SUM(COALESCE(protocol_fee_amount_usd, 0)::double precision) AS protocol_fee_amount_usd,
   SUM(COALESCE(bribe_amount_usd, 0)::double precision) AS bribe_amount_usd,
   SUM(COALESCE(votes_received, 0)::double precision) AS votes_received,
-  MAX(CASE WHEN COALESCE(core_non_core::text, '') IN ('true', '1', 't', 'yes') THEN 1 ELSE 0 END) AS is_core_pool
+  MAX(CASE WHEN COALESCE(LOWER(TRIM(core_non_core::text)), '') IN ('true', '1', 't', 'yes') OR COALESCE(core_non_core::text, '') = 'True' THEN 1 ELSE 0 END) AS is_core_pool
 FROM balancer_data   -- change to your table name (e.g. tokenomics) if needed
 WHERE pool_symbol IS NOT NULL AND TRIM(pool_symbol) <> ''
 GROUP BY date_trunc('month', (block_date::date)), pool_symbol
