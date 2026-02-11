@@ -273,16 +273,22 @@ else:
     # 'all' mode - show everything
     df_display = df_sim.copy()
 
+# Apply scenario (reduction % + core-only) so emission sections reflect the filters
+df_scenario = utils.calculate_emission_reduction_impact(df_display, reduction_factor, core_only=core_only)
+# Column to use for emissions in breakdowns: scenario (reduced + core-only) so filters are visible
+bal_col = 'reduced_bal_emitted' if 'reduced_bal_emitted' in df_scenario.columns else 'bal_emited_votes'
+df_emissions = df_scenario.copy()
+df_emissions[bal_col] = df_scenario['reduced_bal_emitted'] if 'reduced_bal_emitted' in df_scenario.columns else df_scenario['bal_emited_votes']
+
 # ============================================================================
 # EMISSIONS ANALYSIS: LEGITIMATE VS MERCENARY
 # ============================================================================
 st.markdown("### 📊 Emissions Analysis: Legitimate vs Mercenary Pools")
+if reduction_pct > 0 or core_only:
+    st.caption(f"Showing scenario: {reduction_pct}% reduction" + (" • Core pools only" if core_only else ""))
 
-# Use bal_emited_votes from data (same as home page)
-bal_col = 'bal_emited_votes'
-
-# Aggregate emissions by pool category
-emissions_by_category = df_display.groupby('pool_category').agg({
+# Aggregate emissions by pool category (uses scenario emissions when reduction/core-only set)
+emissions_by_category = df_emissions.groupby('pool_category').agg({
     bal_col: 'sum',
     'pool_symbol': 'nunique'
 }).round(2)
@@ -356,15 +362,16 @@ with col_toggle_legit:
     
     show_percentage_legit = st.session_state.show_legit_mercenary_percentage
 
-# Prepare temporal data - ensure block_date is datetime
-if 'block_date' in df_display.columns:
-    if not pd.api.types.is_datetime64_any_dtype(df_display['block_date']):
-        df_display['block_date'] = pd.to_datetime(df_display['block_date'], errors='coerce')
-    df_display['month'] = df_display['block_date'].dt.to_period('M').dt.start_time
+# Prepare temporal data - ensure block_date is datetime (use df_emissions for scenario-aware chart)
+df_emissions_chart = df_emissions.copy()
+if 'block_date' in df_emissions_chart.columns:
+    if not pd.api.types.is_datetime64_any_dtype(df_emissions_chart['block_date']):
+        df_emissions_chart['block_date'] = pd.to_datetime(df_emissions_chart['block_date'], errors='coerce')
+    df_emissions_chart['month'] = df_emissions_chart['block_date'].dt.to_period('M').dt.start_time
 else:
     st.warning("block_date column not found. Cannot create temporal chart.")
-    df_display['month'] = pd.NaT
-emissions_temporal = df_display.groupby(['month', 'pool_category']).agg({
+    df_emissions_chart['month'] = pd.NaT
+emissions_temporal = df_emissions_chart.groupby(['month', 'pool_category']).agg({
     bal_col: 'sum'
 }).reset_index()
 
@@ -448,9 +455,11 @@ st.markdown("---")
 # EMISSIONS ANALYSIS: CORE VS NON-CORE POOLS
 # ============================================================================
 st.markdown("### 📊 Emissions Analysis: Core Pools vs Non-Core Pools")
+if core_only:
+    st.caption("Showing scenario: emissions only for core pools (non-core = 0).")
 
-# Aggregate emissions by core pool status
-emissions_by_core = df_display.groupby('is_core_pool').agg({
+# Aggregate emissions by core pool status (uses scenario so core-only filter is visible)
+emissions_by_core = df_emissions.groupby('is_core_pool').agg({
     bal_col: 'sum',
     'pool_symbol': 'nunique'
 }).round(2)
@@ -517,8 +526,8 @@ with col_toggle:
     
     show_percentage = st.session_state.show_core_percentage
 
-# Prepare temporal data
-emissions_temporal_core = df_display.groupby(['month', 'is_core_pool']).agg({
+# Prepare temporal data (use df_emissions_chart which has month and scenario emissions)
+emissions_temporal_core = df_emissions_chart.groupby(['month', 'is_core_pool']).agg({
     bal_col: 'sum'
 }).reset_index()
 mapping_core = {1: 'Core Pools', 0: 'Non-Core Pools'}

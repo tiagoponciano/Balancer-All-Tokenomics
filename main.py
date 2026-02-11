@@ -14,7 +14,7 @@ SCRIPT_DIR = Path(__file__).parent / "service"
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from dune_fetcher import fetch_and_save
-from dune_fetcher_chunked import fetch_and_save_chunked
+from dune_fetcher_chunked import fetch_and_save_chunked, fetch_and_save_with_params
 
 PROJECT_ROOT = Path(__file__).parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -35,6 +35,8 @@ QUERIES = {
 
 # Query 6644710 is the large one that needs chunking
 CHUNKED_QUERY_ID = 6644710
+BRIBES_QUERY_ID = 6583834   # Uses start_date param; gauge/blockchain filled by enrich_bribes_with_fsn
+VOTES_EMISSIONS_QUERY_ID = 6608301  # Uses start_date + end_date (same logic as veBAL)
 CHUNK_DAYS = 45  # Fetch 45 days at a time (smaller chunks reduce timeouts)
 
 def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_with_existing: bool = False):
@@ -50,12 +52,12 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
     print("Starting Dune data collection")
     print("=" * 60)
     print(f"Total queries: {len(QUERIES)}")
-    print(f"Date range for query {CHUNKED_QUERY_ID}: {start_date} to {end_date}\n")
+    print(f"Date range: {start_date} to {end_date} (veBAL chunked; Bribes from start_date; Votes start_date→end_date)\n")
     
     results = []
     
     for query_id, output_file in QUERIES.items():
-        # Use chunked fetching for the large query
+        # veBAL: chunked fetch with date range; merge with existing when incremental
         if query_id == CHUNKED_QUERY_ID:
             success, rows, path = fetch_and_save_chunked(
                 api_key=API_KEY,
@@ -67,8 +69,30 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
                 chunk_days=CHUNK_DAYS,
                 merge_with_existing=merge_vebal_with_existing,
             )
+        # Bribes: single run with start_date; merge with existing when incremental
+        elif query_id == BRIBES_QUERY_ID:
+            success, rows, path = fetch_and_save_with_params(
+                api_key=API_KEY,
+                query_id=query_id,
+                params={"start_date": start_date},
+                output_filename=output_file,
+                project_root=PROJECT_ROOT,
+                merge_with_existing=merge_vebal_with_existing,
+                merge_key_columns=["day", "proposal_hash"],
+            )
+        # Votes_Emissions: single run with start_date + end_date; merge when incremental
+        elif query_id == VOTES_EMISSIONS_QUERY_ID:
+            success, rows, path = fetch_and_save_with_params(
+                api_key=API_KEY,
+                query_id=query_id,
+                params={"start_date": start_date, "end_date": end_date},
+                output_filename=output_file,
+                project_root=PROJECT_ROOT,
+                merge_with_existing=merge_vebal_with_existing,
+                merge_key_columns=["day", "gauge_address"],
+            )
         else:
-            # Use regular fetching for other queries
+            # Fallback: no params (legacy)
             success, rows, path = fetch_and_save(
                 api_key=API_KEY,
                 query_id=query_id,
@@ -178,6 +202,40 @@ def run_upload_to_neon():
         print(f"❌ Upload failed: {e}")
         raise
 
+
+def run_test_incremental():
+    """Print last date from each data source and the computed incremental start_date/end_date (no fetch)."""
+    from get_last_date import get_last_date_per_source, get_incremental_date_range
+
+    print("=" * 60)
+    print("Test incremental dates (no Dune fetch)")
+    print("=" * 60)
+
+    # Last date per source
+    per_source = get_last_date_per_source()
+    print("\n📅 Last date in each data source (used for start_date = last + 1):\n")
+    max_label = max(len(k) for k in per_source) if per_source else 20
+    for source, last in per_source.items():
+        val = last if last else "(no data or file missing)"
+        print(f"  {source:<{max_label}}  →  {val}")
+
+    # Which source drives incremental: NEON first, then local tokenomics CSV
+    start_date, end_date, last_used = get_incremental_date_range(default_start=DEFAULT_START_DATE)
+    print("\n📅 Incremental date range (what the pipeline would use):\n")
+    if last_used:
+        print(f"  Last date (from NEON or local tokenomics CSV):  {last_used}")
+        print(f"  Start date (last + 1 day):                     {start_date}")
+    else:
+        print("  No existing data → using default start_date.")
+        print(f"  Start date:  {start_date}")
+    print(f"  End date (today):  {end_date}")
+    if last_used and start_date > end_date:
+        print("\n  ℹ️  Data is already up to date (start > end); run would fetch nothing new.")
+    print("\n" + "=" * 60)
+    print("Run with:  python main.py  or  python main.py --dune-only")
+    print("=" * 60)
+
+
 def parse_args():
     """Parse command line arguments for dates."""
     start_date = None
@@ -250,6 +308,9 @@ def main():
         elif sys.argv[1] == "--upload-to-neon":
             run_upload_to_neon()
             return
+        elif sys.argv[1] == "--test-incremental":
+            run_test_incremental()
+            return
         elif sys.argv[1] == "--help" or sys.argv[1] == "-h":
             print("Usage: python main.py [options]")
             print("\nOptions:")
@@ -263,6 +324,7 @@ def main():
             print("  --enrich-bribes-fsn       - Enriches Bribes with FSN data (blockchain + gauge)")
             print("  --create-final            - Creates final dataset (Balancer-All-Tokenomics.csv)")
             print("  --upload-to-neon          - Upload final CSV to NEON/Postgres (set DATABASE_URL in .env)")
+            print("  --test-incremental        - Print last date per source and computed start_date/end_date (no fetch)")
             print("  --help, -h                - Shows this message")
             print("\nDate Parameters (for chunked query 6644710):")
             print("  --start-date YYYY-MM-DD   - Set start date (default: incremental = day after last data)")

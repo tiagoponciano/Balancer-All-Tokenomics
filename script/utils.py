@@ -2775,6 +2775,27 @@ def create_minimalist_chart(x, y, name, color, height=400):
     
     return fig
 
+def _normalize_is_core_pool(series):
+    """Convert core_non_core or is_core_pool to 0/1 (handles bool, str 'True'/'False', numeric)."""
+    if series is None or len(series) == 0:
+        return pd.Series(dtype=int)
+    s = series.astype(object)
+    def to_int(x):
+        try:
+            if pd.isna(x):
+                return 0
+            if x is True or x == 1:
+                return 1
+            if isinstance(x, str) and x.strip().lower() in ('true', '1', 'yes'):
+                return 1
+            if isinstance(x, (int, float)) and x == 1:
+                return 1
+            return 0
+        except Exception:
+            return 0
+    return s.map(to_int).astype(int)
+
+
 def calculate_emission_reduction_impact(df, reduction_factor, core_only=False):
     """
     Calculate the impact of emission reduction on pools.
@@ -2789,18 +2810,25 @@ def calculate_emission_reduction_impact(df, reduction_factor, core_only=False):
     """
     df_scenario = df.copy()
     
+    # Ensure is_core_pool exists and is 0/1 (data may have core_non_core as bool or string)
+    if 'is_core_pool' not in df_scenario.columns and 'core_non_core' in df_scenario.columns:
+        df_scenario['is_core_pool'] = _normalize_is_core_pool(df_scenario['core_non_core'])
+    elif 'is_core_pool' in df_scenario.columns:
+        df_scenario['is_core_pool'] = _normalize_is_core_pool(df_scenario['is_core_pool'])
+    else:
+        df_scenario['is_core_pool'] = 0
+    
     # Determine which pools get emissions
     if core_only:
         # Only core pools get emissions, non-core get 0
-        emission_mask = df_scenario.get('is_core_pool', pd.Series([0] * len(df_scenario))) == 1
+        emission_mask = (df_scenario['is_core_pool'] == 1)
     else:
         # All pools get emissions (reduced by factor)
-        emission_mask = pd.Series([True] * len(df_scenario))
+        emission_mask = pd.Series([True] * len(df_scenario), index=df_scenario.index)
     
     # Calculate reduced BAL emissions (use bal_emited_votes from data, same as home page)
-    df_scenario['reduced_bal_emitted'] = df_scenario['bal_emited_votes'].where(
-        emission_mask, 0
-    ) * reduction_factor
+    bal = pd.to_numeric(df_scenario.get('bal_emited_votes', 0), errors='coerce').fillna(0)
+    df_scenario['reduced_bal_emitted'] = (bal.where(emission_mask, 0) * reduction_factor)
     
     # Calculate reduced incentives (proportional to BAL emissions)
     if 'direct_incentives' in df_scenario.columns:
