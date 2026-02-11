@@ -1919,6 +1919,59 @@ BAL_EMISSIONS_FILENAME = 'BAL_Emissions_by_GaugePool.csv'
 # NEON/Postgres: table name. Override with env NEON_TABLE (e.g. NEON_TABLE=balancer_data if you \copy into balancer_data).
 NEON_TABLE_MAIN = os.getenv("NEON_TABLE", "tokenomics").strip() or "tokenomics"
 
+# When set (e.g. 1 or true), load from materialized views mv_pool_summary + mv_monthly_series instead of full table (low memory).
+USE_NEON_VIEWS = (os.getenv("USE_NEON_VIEWS", "").strip().lower() in ("1", "true", "yes"))
+
+
+def _load_data_from_neon_views():
+    """
+    Load from NEON materialized views (mv_pool_summary, mv_monthly_series) so the app
+    only fetches pre-aggregated data. Returns a DataFrame with one row per (month, pool);
+    block_date is set to first of month. Returns None if views are missing or on error.
+    """
+    url = os.getenv("DATABASE_URL")
+    if not url or not url.strip():
+        return None
+    try:
+        from sqlalchemy import create_engine
+    except ImportError:
+        return None
+    try:
+        if "sslmode" not in url:
+            url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
+        engine = create_engine(url)
+        pools = pd.read_sql('SELECT * FROM mv_pool_summary', engine)
+        monthly = pd.read_sql('SELECT * FROM mv_monthly_series', engine)
+        if pools.empty or monthly.empty:
+            return None
+        # Merge so we have month + pool + category + metrics
+        df = monthly.merge(
+            pools[["pool_symbol", "pool_category", "blockchain", "version", "is_core_pool"]],
+            on="pool_symbol",
+            how="left",
+        )
+        df["block_date"] = pd.to_datetime(df["year_month"], errors="coerce")
+        df["direct_incentives"] = pd.to_numeric(df.get("bribe_amount_usd", 0), errors="coerce").fillna(0)
+        df["protocol_fee_amount_usd"] = pd.to_numeric(df.get("protocol_fee_amount_usd", 0), errors="coerce").fillna(0)
+        df["dao_profit_usd"] = df["protocol_fee_amount_usd"] - df["direct_incentives"]
+        df["bal_emited_votes"] = pd.to_numeric(df.get("bal_emited_votes", 0), errors="coerce").fillna(0)
+        df["votes_received"] = pd.to_numeric(df.get("votes_received", 0), errors="coerce").fillna(0)
+        df["pool_category"] = df["pool_category"].fillna("Undefined")
+        df["has_gauge"] = False  # views don't have gauge
+        if "core_non_core" not in df.columns:
+            df["core_non_core"] = df["is_core_pool"]
+        # Placeholders so filters and other code don't break (views are pool+month only)
+        if "project_contract_address" not in df.columns:
+            df["project_contract_address"] = ""
+        if "gauge_address" not in df.columns:
+            df["gauge_address"] = ""
+        if "pool_type" not in df.columns:
+            df["pool_type"] = ""
+        return df
+    except Exception:
+        pass
+    return None
+
 
 def _load_data_from_neon():
     """Load main tokenomics data from NEON (or any Postgres) if DATABASE_URL is set. Returns DataFrame or None."""
@@ -2154,7 +2207,13 @@ def _set_data_source(source: str):
 def load_data():
     """Load main data: Balancer-All-Tokenomics. Prefer NEON (DATABASE_URL) if set; then local CSV; else Supabase; fallback: balancer_v2_merged / master."""
     try:
-        # 1) NEON/Postgres (no size limit; monthly upload keeps data fresh)
+        # 1a) NEON materialized views (low memory: only pool summary + monthly series)
+        if USE_NEON_VIEWS:
+            df = _load_data_from_neon_views()
+            if df is not None and not df.empty:
+                _set_data_source("NEON (views)")
+                return _process_main_data(df)
+        # 1b) NEON/Postgres full table (or when views not used)
         df = _load_data_from_neon()
         if df is not None and not df.empty:
             _set_data_source("NEON")
@@ -2227,8 +2286,8 @@ def show_data_source_badge():
     source = st.session_state.get("tokenomics_data_source")
     if not source:
         return
-    if source == "NEON":
-        st.sidebar.success("📊 **Data:** NEON")
+    if source in ("NEON", "NEON (views)"):
+        st.sidebar.success(f"📊 **Data:** {source}")
     else:
         st.sidebar.caption(f"📊 Data: {source}")
 

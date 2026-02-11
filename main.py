@@ -14,7 +14,11 @@ SCRIPT_DIR = Path(__file__).parent / "service"
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from dune_fetcher import fetch_and_save
-from dune_fetcher_chunked import fetch_and_save_chunked, fetch_and_save_with_params
+from dune_fetcher_chunked import fetch_and_save_chunked
+try:
+    from dune_fetcher_chunked import fetch_and_save_with_params
+except ImportError:
+    fetch_and_save_with_params = None  # older deploy without param support
 
 PROJECT_ROOT = Path(__file__).parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -70,7 +74,7 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
                 merge_with_existing=merge_vebal_with_existing,
             )
         # Bribes: single run with start_date; merge with existing when incremental
-        elif query_id == BRIBES_QUERY_ID:
+        elif query_id == BRIBES_QUERY_ID and fetch_and_save_with_params is not None:
             success, rows, path = fetch_and_save_with_params(
                 api_key=API_KEY,
                 query_id=query_id,
@@ -81,7 +85,7 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
                 merge_key_columns=["day", "proposal_hash"],
             )
         # Votes_Emissions: single run with start_date + end_date; merge when incremental
-        elif query_id == VOTES_EMISSIONS_QUERY_ID:
+        elif query_id == VOTES_EMISSIONS_QUERY_ID and fetch_and_save_with_params is not None:
             success, rows, path = fetch_and_save_with_params(
                 api_key=API_KEY,
                 query_id=query_id,
