@@ -1929,8 +1929,15 @@ BAL_EMISSIONS_FILENAME = 'BAL_Emissions_by_GaugePool.csv'
 # NEON/Postgres: table name. Override with env NEON_TABLE (e.g. NEON_TABLE=balancer_data if you \copy into balancer_data).
 NEON_TABLE_MAIN = os.getenv("NEON_TABLE", "tokenomics").strip() or "tokenomics"
 
-# When set (e.g. 1 or true), load from materialized views mv_pool_summary + mv_monthly_series instead of full table (low memory).
-USE_NEON_VIEWS = (os.getenv("USE_NEON_VIEWS", "").strip().lower() in ("1", "true", "yes"))
+# Load from materialized views (mv_pool_summary, mv_monthly_series) when we have a DB, unless explicitly disabled.
+# Default: use views when DATABASE_URL is set (avoids full-table load on Streamlit Cloud). Set USE_NEON_VIEWS=0 to use full table.
+_use_views_env = os.getenv("USE_NEON_VIEWS", "").strip().lower()
+if _use_views_env in ("0", "false", "no"):
+    USE_NEON_VIEWS = False
+elif _use_views_env in ("1", "true", "yes"):
+    USE_NEON_VIEWS = True
+else:
+    USE_NEON_VIEWS = bool(os.getenv("DATABASE_URL", "").strip())
 
 
 def _load_data_from_neon_views():
@@ -1967,12 +1974,17 @@ def _load_data_from_neon_views():
                 "REFRESH MATERIALIZED VIEW mv_pool_summary; REFRESH MATERIALIZED VIEW mv_monthly_series; in NEON. "
                 + views_help
             )
-        # Merge so we have month + pool + category + metrics
-        df = monthly.merge(
-            pools[["pool_symbol", "pool_category", "blockchain", "version", "is_core_pool"]],
-            on="pool_symbol",
-            how="left",
-        )
+        # Merge so we have month + pool + category + metrics (only bring pool-level cols from pools to avoid duplicate column names)
+        pool_cols = [c for c in ["pool_symbol", "pool_category", "blockchain", "version", "is_core_pool"] if c in pools.columns]
+        if "pool_symbol" not in pool_cols:
+            raise RuntimeError("mv_pool_summary must have column pool_symbol. " + views_help)
+        df = monthly.merge(pools[pool_cols], on="pool_symbol", how="left", suffixes=("", "_pool"))
+        # After merge, we may have is_core_pool from monthly and is_core_pool_pool from pools; prefer one
+        if "is_core_pool_pool" in df.columns:
+            df["is_core_pool"] = df["is_core_pool_pool"].fillna(df.get("is_core_pool", 0))
+            df = df.drop(columns=["is_core_pool_pool"], errors="ignore")
+        if "is_core_pool" not in df.columns:
+            df["is_core_pool"] = 0
         df["block_date"] = pd.to_datetime(df["year_month"], errors="coerce")
         df["direct_incentives"] = pd.to_numeric(df.get("bribe_amount_usd", 0), errors="coerce").fillna(0)
         df["protocol_fee_amount_usd"] = pd.to_numeric(df.get("protocol_fee_amount_usd", 0), errors="coerce").fillna(0)
