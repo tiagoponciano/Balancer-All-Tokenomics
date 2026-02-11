@@ -1995,6 +1995,9 @@ def _load_data_from_neon_views():
         df["has_gauge"] = False  # views don't have gauge
         if "core_non_core" not in df.columns:
             df["core_non_core"] = df["is_core_pool"]
+        # Simulation expects total_protocol_fee_usd; view rows are per-month so use protocol_fee_amount_usd
+        if "total_protocol_fee_usd" not in df.columns and "protocol_fee_amount_usd" in df.columns:
+            df["total_protocol_fee_usd"] = df["protocol_fee_amount_usd"]
         # Placeholders so filters and other code don't break (views are pool+month only)
         if "project_contract_address" not in df.columns:
             df["project_contract_address"] = ""
@@ -2833,9 +2836,12 @@ def run_simulation_sidebar(df):
 
     mask_core = df_sim['is_core_pool'] == 1
     mask_noncore = df_sim['is_core_pool'] == 0
-    
-    df_sim['sim_protocol_fee'] = df_sim['total_protocol_fee_usd'] * (protocol_fee_pct / 100)
-    df_sim['remaining_revenue'] = df_sim['total_protocol_fee_usd'] - df_sim['sim_protocol_fee']
+
+    # Use total_protocol_fee_usd if present (full data), else protocol_fee_amount_usd (view data)
+    rev_col = "total_protocol_fee_usd" if "total_protocol_fee_usd" in df_sim.columns else "protocol_fee_amount_usd"
+    protocol_fee = pd.to_numeric(df_sim[rev_col], errors="coerce").fillna(0)
+    df_sim['sim_protocol_fee'] = protocol_fee * (protocol_fee_pct / 100)
+    df_sim['remaining_revenue'] = protocol_fee - df_sim['sim_protocol_fee']
     
     df_sim['sim_dao_revenue'] = 0.0
     df_sim['sim_holders_revenue'] = 0.0
