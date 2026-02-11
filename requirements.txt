@@ -19,3 +19,12 @@ psycopg2-binary>=2.9
 
 # Date handling (relativedelta for chunked Dune fetch)
 python-dateutil>=2.8
+
+# Jupyter / nbconvert (resolve dependency conflicts)
+jupyter-core>=4.12
+traitlets>=5.6.0
+ipykernel>=6.14
+ipython>=8.0
+jupyter-client>=7.4.4
+prompt-toolkit>=3.0.30
+pyzmq>=24
