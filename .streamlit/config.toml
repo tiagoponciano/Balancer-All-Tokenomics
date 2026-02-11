@@ -1,0 +1,4 @@
+# Disable file watcher to avoid "inotify watch limit reached" on Streamlit Cloud
+# (Cloud has a low inotify limit; we don't need auto-reload in production.)
+[server]
+fileWatcherType = "none"
