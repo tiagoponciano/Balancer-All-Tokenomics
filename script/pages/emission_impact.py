@@ -282,10 +282,19 @@ bal_col = 'reduced_bal_emitted' if 'reduced_bal_emitted' in df_scenario.columns 
 df_emissions = df_scenario.copy()
 df_emissions[bal_col] = df_scenario['reduced_bal_emitted'] if 'reduced_bal_emitted' in df_scenario.columns else df_scenario['bal_emited_votes']
 
+# Ensure pool_category exists and has no NaN (groupby with NaN index breaks metric lookup)
+if 'pool_category' not in df_emissions.columns:
+    df_emissions['pool_category'] = 'Undefined'
+else:
+    df_emissions['pool_category'] = (
+        df_emissions['pool_category'].astype(str).str.strip().replace('', 'Undefined').replace('nan', 'Undefined')
+    )
+df_emissions['pool_category'] = df_emissions['pool_category'].fillna('Undefined').replace('', 'Undefined')
+
 # ============================================================================
 # EMISSIONS ANALYSIS: LEGITIMATE VS MERCENARY
 # ============================================================================
-st.markdown("### 📊 Emissions Analysis by Pool Category (Legitimate / Sustainable / Mercenary / Undefined)")
+st.markdown("### 📊 Emissions Analysis by Pool Category")
 if reduction_pct > 0 or core_only:
     st.caption(f"Showing scenario: {reduction_pct}% reduction" + (" • Core pools only" if core_only else ""))
 
@@ -296,25 +305,39 @@ emissions_by_category = df_emissions.groupby('pool_category').agg({
 }).round(2)
 emissions_by_category.columns = ['Total BAL Emitted', 'Pool Count']
 
-# Calculate percentages
-total_emissions = emissions_by_category['Total BAL Emitted'].sum()
+# Build category totals by mapping any index value to our 4 known categories (avoids index lookup issues)
+KNOWN_CATS = ['Legitimate', 'Sustainable', 'Mercenary', 'Undefined']
+cat_totals = {c: 0.0 for c in KNOWN_CATS}
+cat_counts = {c: 0 for c in KNOWN_CATS}
+for idx, row in emissions_by_category.iterrows():
+    key = str(idx).strip() if pd.notna(idx) and idx is not None else 'Undefined'
+    if not key or key.lower() == 'nan':
+        key = 'Undefined'
+    if key not in KNOWN_CATS:
+        key = 'Undefined'
+    cat_totals[key] += float(row['Total BAL Emitted'])
+    cat_counts[key] += int(row['Pool Count'])
+
+total_emissions = sum(cat_totals.values())
 if total_emissions > 0:
-    emissions_by_category['Percentage'] = (emissions_by_category['Total BAL Emitted'] / total_emissions * 100).round(2)
+    cat_pcts = {c: (cat_totals[c] / total_emissions * 100) for c in KNOWN_CATS}
 else:
-    emissions_by_category['Percentage'] = 0
+    cat_pcts = {c: 0.0 for c in KNOWN_CATS}
+
+# Rebuild emissions_by_category for the detailed table (index = known categories)
+emissions_by_category = pd.DataFrame({
+    'Total BAL Emitted': [cat_totals[c] for c in KNOWN_CATS],
+    'Pool Count': [cat_counts[c] for c in KNOWN_CATS],
+    'Percentage': [cat_pcts[c] for c in KNOWN_CATS]
+}, index=KNOWN_CATS)
 
 # Display aggregated values (5 columns: Legitimate, Sustainable, Mercenary, Undefined, Total)
 col1, col2, col3, col4, col5 = st.columns(5)
 
-def _cat_metric(cat, index):
-    val = index.loc[cat, 'Total BAL Emitted'] if cat in index else 0
-    pct = index.loc[cat, 'Percentage'] if cat in index else 0
-    return val, pct
-
-legitimate_emissions, legitimate_pct = _cat_metric('Legitimate', emissions_by_category)
-sustainable_emissions, sustainable_pct = _cat_metric('Sustainable', emissions_by_category)
-mercenary_emissions, mercenary_pct = _cat_metric('Mercenary', emissions_by_category)
-undefined_emissions, undefined_pct = _cat_metric('Undefined', emissions_by_category)
+legitimate_emissions, legitimate_pct = cat_totals['Legitimate'], cat_pcts['Legitimate']
+sustainable_emissions, sustainable_pct = cat_totals['Sustainable'], cat_pcts['Sustainable']
+mercenary_emissions, mercenary_pct = cat_totals['Mercenary'], cat_pcts['Mercenary']
+undefined_emissions, undefined_pct = cat_totals['Undefined'], cat_pcts['Undefined']
 
 with col1:
     st.metric("Legitimate Emissions", f"{legitimate_emissions:,.0f} BAL", f"{legitimate_pct:.1f}%", help="Total BAL emitted to legitimate pools")
@@ -356,12 +379,25 @@ if 'block_date' in df_emissions_chart.columns:
 else:
     st.warning("block_date column not found. Cannot create temporal chart.")
     df_emissions_chart['month'] = pd.NaT
+
+# Map pool_category to our 4 known categories before groupby (for correct chart breakdown)
+def _map_pool_cat(x):
+    if pd.isna(x) or x is None or str(x).strip().lower() in ('', 'nan'):
+        return 'Undefined'
+    s = str(x).strip()
+    return s if s in KNOWN_CATS else 'Undefined'
+df_emissions_chart['pool_category'] = df_emissions_chart['pool_category'].apply(_map_pool_cat)
+
 emissions_temporal = df_emissions_chart.groupby(['month', 'pool_category']).agg({
     bal_col: 'sum'
 }).reset_index()
 
-# Pivot for chart
+# Pivot for chart - ensure all 4 categories as columns in fixed order
 pivot_emissions = emissions_temporal.pivot(index='month', columns='pool_category', values=bal_col).fillna(0)
+for c in KNOWN_CATS:
+    if c not in pivot_emissions.columns:
+        pivot_emissions[c] = 0
+pivot_emissions = pivot_emissions[KNOWN_CATS]
 
 # Normalize to percentage if toggle is on
 if show_percentage_legit:
@@ -595,14 +631,24 @@ st.markdown("---")
 # ============================================================================
 st.markdown("### 📊 Current State (Baseline)")
 
-# Use bal_emited_votes from data (same as home page)
-baseline = df_display.groupby('pool_category').agg({
+# Normalize pool_category for baseline (same mapping as KPIs/chart)
+df_baseline = df_display.copy()
+if 'pool_category' not in df_baseline.columns:
+    df_baseline['pool_category'] = 'Undefined'
+else:
+    df_baseline['pool_category'] = df_baseline['pool_category'].apply(
+        lambda x: 'Undefined' if (pd.isna(x) or x is None or str(x).strip().lower() in ('', 'nan'))
+        else (str(x).strip() if str(x).strip() in KNOWN_CATS else 'Undefined')
+    )
+baseline = df_baseline.groupby('pool_category').agg({
     'bal_emited_votes': 'sum',
     'direct_incentives': 'sum',
     'protocol_fee_amount_usd': 'sum',
     'dao_profit_usd': 'sum'
 }).round(2)
 baseline.columns = ['BAL Emitted', 'Total Incentives', 'Total Revenue', 'Total DAO Profit']
+# Ensure all 4 categories in baseline (reindex, fill 0)
+baseline = baseline.reindex(KNOWN_CATS, fill_value=0).fillna(0)
 
 # Format monetary columns
 baseline_display = baseline.copy()
@@ -624,18 +670,29 @@ st.markdown(f"### 📈 Impact Analysis: {scenario_name}")
 # Calculate impact with new parameters
 df_scenario = utils.calculate_emission_reduction_impact(df_display, reduction_factor, core_only=core_only)
 
+# Normalize pool_category for scenario summary (same mapping as baseline)
+df_scenario_norm = df_scenario.copy()
+if 'pool_category' not in df_scenario_norm.columns:
+    df_scenario_norm['pool_category'] = 'Undefined'
+else:
+    df_scenario_norm['pool_category'] = df_scenario_norm['pool_category'].apply(
+        lambda x: 'Undefined' if (pd.isna(x) or x is None or str(x).strip().lower() in ('', 'nan'))
+        else (str(x).strip() if str(x).strip() in KNOWN_CATS else 'Undefined')
+    )
 agg_dict = {
     'reduced_incentives': 'sum',
     'protocol_fee_amount_usd': 'sum',
     'new_dao_profit': 'sum',
     'direct_incentives': 'sum'
 }
-if 'bal_emited_votes' in df_scenario.columns:
+if 'bal_emited_votes' in df_scenario_norm.columns:
     agg_dict['bal_emited_votes'] = 'sum'
-if 'reduced_bal_emitted' in df_scenario.columns:
+if 'reduced_bal_emitted' in df_scenario_norm.columns:
     agg_dict['reduced_bal_emitted'] = 'sum'
 
-scenario_summary = df_scenario.groupby('pool_category').agg(agg_dict).round(2)
+scenario_summary = df_scenario_norm.groupby('pool_category').agg(agg_dict).round(2)
+# Ensure all 4 categories (reindex, fill 0)
+scenario_summary = scenario_summary.reindex(KNOWN_CATS, fill_value=0).fillna(0)
 
 # Calculate additional metrics
 if 'reduced_bal_emitted' in scenario_summary.columns and 'bal_emited_votes' in scenario_summary.columns:
@@ -645,7 +702,8 @@ else:
 
 scenario_summary['incentive_reduction'] = scenario_summary['direct_incentives'] - scenario_summary['reduced_incentives']
 scenario_summary['profit_change'] = scenario_summary['new_dao_profit'] - baseline['Total DAO Profit']
-scenario_summary['profit_change_pct'] = (scenario_summary['profit_change'] / baseline['Total DAO Profit'] * 100).round(2).fillna(0)
+base_dao = baseline['Total DAO Profit'].replace(0, 1)  # avoid division by zero
+scenario_summary['profit_change_pct'] = (scenario_summary['profit_change'] / base_dao * 100).round(2).fillna(0).replace([float('inf'), -float('inf')], 0)
 
 # Rename columns based on what actually exists
 column_mapping = {}
