@@ -3,8 +3,18 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import os
+import sys
 from dotenv import load_dotenv
 import io
+
+
+def _log(msg: str) -> None:
+    """Print and flush so Streamlit Cloud runtime logs show it immediately."""
+    print(msg)
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 # Load environment variables (cwd and project root so Streamlit finds .env)
 load_dotenv()
@@ -1932,12 +1942,12 @@ def _load_data_from_neon_views():
     """
     url = os.getenv("DATABASE_URL")
     if not url or not url.strip():
-        print("[Data load] NEON views: DATABASE_URL not set, skipping")
+        _log("[Data load] NEON views: DATABASE_URL not set, skipping")
         return None
     try:
         from sqlalchemy import create_engine
     except ImportError:
-        print("[Data load] NEON views: sqlalchemy not available")
+        _log("[Data load] NEON views: sqlalchemy not available")
         return None
     views_help = (
         "Create the materialized views in NEON: open your NEON project → SQL Editor, "
@@ -1947,9 +1957,9 @@ def _load_data_from_neon_views():
         if "sslmode" not in url:
             url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
         engine = create_engine(url)
-        print("[Data load] NEON views: querying mv_pool_summary...")
+        _log("[Data load] NEON views: querying mv_pool_summary...")
         pools = pd.read_sql('SELECT * FROM mv_pool_summary', engine)
-        print("[Data load] NEON views: querying mv_monthly_series...")
+        _log("[Data load] NEON views: querying mv_monthly_series...")
         monthly = pd.read_sql('SELECT * FROM mv_monthly_series', engine)
         if pools.empty or monthly.empty:
             raise RuntimeError(
@@ -2004,7 +2014,7 @@ def _load_data_from_neon():
         if "sslmode" not in url:
             url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
         engine = create_engine(url)
-        print(f"[Data load] NEON full table: SELECT * FROM \"{table}\" (this can be large)")
+        _log(f"[Data load] NEON full table: SELECT * FROM \"{table}\" (this can be large)")
         df = pd.read_sql(f'SELECT * FROM "{table}"', engine)
         if df is not None and not df.empty:
             return df
@@ -2239,25 +2249,25 @@ def _set_data_load_debug(use_neon_views: bool, database_url_set: bool, source: s
 def load_data():
     """Load main data: Balancer-All-Tokenomics. Prefer NEON (DATABASE_URL) if set; then local CSV; else Supabase; fallback: balancer_v2_merged / master."""
     database_url_set = bool(os.getenv("DATABASE_URL", "").strip())
-    print(f"[Data load] USE_NEON_VIEWS={USE_NEON_VIEWS!r}, DATABASE_URL set={database_url_set}")
+    _log(f"[Data load] USE_NEON_VIEWS={USE_NEON_VIEWS!r}, DATABASE_URL set={database_url_set}")
     _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "", 0, "loading...")
     try:
         # 1a) NEON materialized views (low memory: only pool summary + monthly series)
         if USE_NEON_VIEWS:
-            print("[Data load] Attempting NEON materialized views (mv_pool_summary, mv_monthly_series)")
+            _log("[Data load] Attempting NEON materialized views (mv_pool_summary, mv_monthly_series)")
             df = _load_data_from_neon_views()
             if df is not None and not df.empty:
                 n = len(df)
-                print(f"[Data load] Loaded from NEON (views), rows={n}")
+                _log(f"[Data load] Loaded from NEON (views), rows={n}")
                 _set_data_source("NEON (views)")
                 _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "NEON (views)", n, "")
                 return _process_main_data(df)
         # 1b) NEON/Postgres full table (or when views not used)
-        print(f"[Data load] Attempting NEON full table ({NEON_TABLE_MAIN!r})")
+        _log(f"[Data load] Attempting NEON full table ({NEON_TABLE_MAIN!r})")
         df = _load_data_from_neon()
         if df is not None and not df.empty:
             n = len(df)
-            print(f"[Data load] Loaded from NEON full table, rows={n}")
+            _log(f"[Data load] Loaded from NEON full table, rows={n}")
             _set_data_source("NEON")
             _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "NEON (full table)", n, "")
             return _process_main_data(df)
@@ -2271,7 +2281,7 @@ def load_data():
                 df = pd.read_csv(path)
                 if df is not None and not df.empty:
                     n = len(df)
-                    print(f"[Data load] Loaded from Local CSV, rows={n}")
+                    _log(f"[Data load] Loaded from Local CSV, rows={n}")
                     _set_data_source("Local CSV")
                     _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "Local CSV", n, "")
                     return _process_main_data(df)
@@ -2279,7 +2289,7 @@ def load_data():
         df = download_csv_from_supabase(MAIN_DATA_FILENAME)
         if df is not None and not df.empty:
             n = len(df)
-            print(f"[Data load] Loaded from Supabase, rows={n}")
+            _log(f"[Data load] Loaded from Supabase, rows={n}")
             _set_data_source("Supabase")
             _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "Supabase", n, "")
             return _process_main_data(df)
@@ -2292,7 +2302,7 @@ def load_data():
                 break
         if df is not None and not df.empty:
             n = len(df)
-            print(f"[Data load] Loaded from Supabase (fallback), rows={n}")
+            _log(f"[Data load] Loaded from Supabase (fallback), rows={n}")
             _set_data_source("Supabase (fallback)")
             _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "Supabase (fallback)", n, "")
             return _process_merged_data(df)
@@ -2316,7 +2326,7 @@ def load_data():
                     df = pd.read_csv(abs_path)
                     if df is not None and not df.empty:
                         n = len(df)
-                        print(f"[Data load] Loaded from Local CSV (fallback), rows={n}")
+                        _log(f"[Data load] Loaded from Local CSV (fallback), rows={n}")
                         _set_data_source("Local CSV (fallback)")
                         _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "Local CSV (fallback)", n, "")
                         return _process_merged_data(df)
@@ -2324,7 +2334,7 @@ def load_data():
                 continue
 
         _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "", 0, "No data source found")
-        print("[Data load] No data source found")
+        _log("[Data load] No data source found")
         st.error("❌ Balancer-All-Tokenomics.csv not found. Ensure it is in the `data/` folder (or balancer_v2_merged.csv as fallback).")
         with st.expander("🔍 Debug"):
             st.write(f"**CWD:** `{cwd}`")
@@ -2335,7 +2345,7 @@ def load_data():
         return pd.DataFrame()
     except Exception as e:
         _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "", 0, str(e))
-        print(f"[Data load] Error: {e}")
+        _log(f"[Data load] Error: {e}")
         st.error(f"❌ Error loading data: {str(e)}")
         return pd.DataFrame()
 

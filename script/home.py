@@ -1,5 +1,4 @@
 import streamlit as st
-import utils
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -12,6 +11,7 @@ st.set_page_config(
 
 # Wrap app startup + data load so any error shows details instead of generic "Oh no"
 try:
+    import utils
     # Check authentication
     if not utils.check_authentication():
         st.stop()
@@ -128,6 +128,7 @@ if (window.MutationObserver) {
     except Exception as e:
         st.error("Failed to load data. See details below.")
         st.exception(e)
+        st.info("**Logs:** In Streamlit Cloud → Manage app → **Application logs** (not Build logs). Search for `[Data load]`.")
         st.stop()
 
     if df.empty:
@@ -136,6 +137,10 @@ if (window.MutationObserver) {
 except Exception as e:
     st.error("Error running app. See details below.")
     st.exception(e)
+    st.info(
+        "**Where to see more:** In Streamlit Cloud open your app → **Manage app** → **Logs**. "
+        "Use **Application logs** (runtime), not Build logs. Search for `[Data load]` to see which data source was used."
+    )
     st.stop()
 
 # Show where data was loaded from (NEON / Local CSV / Supabase)
