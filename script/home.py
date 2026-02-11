@@ -140,6 +140,7 @@ except Exception as e:
 
 # Show where data was loaded from (NEON / Local CSV / Supabase)
 utils.show_data_source_badge()
+utils.show_data_load_debug()
 
 # Initialize session state - default to 'all' (show everything)
 if 'pool_filter_mode' not in st.session_state:
