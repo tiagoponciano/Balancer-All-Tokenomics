@@ -253,25 +253,47 @@ if 'block_date' in df_display.columns:
         df_display['block_date'] = pd.to_datetime(df_display['block_date'], errors='coerce')
 
 # Apply emission reduction scenario (same as emission_impact page)
-df_scenario = utils.calculate_emission_reduction_impact(df_display, reduction_factor, core_only=core_only)
+revenue_sensitivity = 1.0
+df_scenario = utils.calculate_emission_reduction_impact(
+    df_display, reduction_factor, core_only=core_only, revenue_sensitivity=revenue_sensitivity
+)
+
+# Normalize pool_category to known categories
+KNOWN_CATS = ['Legitimate', 'Sustainable', 'Mercenary', 'Undefined']
+
+
+def _map_pool_cat(x):
+    if pd.isna(x) or x is None or str(x).strip().lower() in ('', 'nan'):
+        return 'Undefined'
+    s = str(x).strip()
+    return s if s in KNOWN_CATS else 'Undefined'
+
+
+df_scenario['pool_category'] = df_scenario['pool_category'].apply(_map_pool_cat)
 
 df_scenario['week'] = df_scenario['block_date'].dt.to_period('W').dt.start_time
 
-df_weekly = df_scenario.groupby(['week', 'pool_category']).agg({
-    'reduced_bal_emitted': 'sum' if 'reduced_bal_emitted' in df_scenario.columns else 'bal_emited_votes',
-    'reduced_incentives': 'sum' if 'reduced_incentives' in df_scenario.columns else 'direct_incentives',
-    'votes_received': 'sum' if 'votes_received' in df_scenario.columns else 0,
+# Use scenario columns when available
+bal_col = 'reduced_bal_emitted' if 'reduced_bal_emitted' in df_scenario.columns else 'bal_emited_votes'
+inc_col = 'reduced_incentives' if 'reduced_incentives' in df_scenario.columns else 'direct_incentives'
+agg_dict = {
+    bal_col: 'sum',
+    inc_col: 'sum',
     'protocol_fee_amount_usd': 'sum',
     'dao_profit_usd': 'sum'
-}).reset_index()
+}
+if 'votes_received' in df_scenario.columns:
+    agg_dict['votes_received'] = 'sum'
 
-# Rename columns for consistency
+df_weekly = df_scenario.groupby(['week', 'pool_category']).agg(agg_dict).reset_index()
+
+# Rename to standard column names for rest of page
 if 'reduced_bal_emitted' in df_weekly.columns:
     df_weekly['bal_emited_votes'] = df_weekly['reduced_bal_emitted']
-    df_weekly = df_weekly.drop(columns=['reduced_bal_emitted'])
+    df_weekly = df_weekly.drop(columns=['reduced_bal_emitted'], errors='ignore')
 if 'reduced_incentives' in df_weekly.columns:
     df_weekly['direct_incentives'] = df_weekly['reduced_incentives']
-    df_weekly = df_weekly.drop(columns=['reduced_incentives'])
+    df_weekly = df_weekly.drop(columns=['reduced_incentives'], errors='ignore')
 
 weekly_totals = df_weekly.groupby('week').agg({
     'bal_emited_votes': 'sum',
@@ -299,6 +321,7 @@ summary_stats = df_weekly.groupby('pool_category').agg({
 }).round(2)
 
 summary_stats.columns = ['Total BAL Emitted', 'Total USD Value', 'Weeks Active']
+summary_stats = summary_stats.reindex(KNOWN_CATS, fill_value=0).fillna(0)
 
 # Format monetary column for display
 summary_stats_display = summary_stats.copy()
@@ -313,6 +336,15 @@ st.markdown("### 📈 Weekly Trends")
 
 pivot_weekly = df_weekly.pivot(index='week', columns='pool_category', values='bal_emited_votes').fillna(0)
 pivot_weekly_incentives = df_weekly.pivot(index='week', columns='pool_category', values='direct_incentives').fillna(0)
+
+# Ensure all 4 categories in pivot columns (consistent order)
+for c in KNOWN_CATS:
+    if c not in pivot_weekly.columns:
+        pivot_weekly[c] = 0
+    if c not in pivot_weekly_incentives.columns:
+        pivot_weekly_incentives[c] = 0
+pivot_weekly = pivot_weekly[KNOWN_CATS]
+pivot_weekly_incentives = pivot_weekly_incentives[KNOWN_CATS]
 
 colors = {'Legitimate': '#2ecc71', 'Sustainable': '#3498db', 'Mercenary': '#e74c3c', 'Undefined': '#95a5a6'}
 
@@ -479,25 +511,27 @@ if st.session_state.pool_filter_mode_weekly in ['top20', 'worst20']:
         st.markdown("### 📋 Pools Weekly Analysis")
         
         for idx, pool in enumerate(filtered_pools):
-            pool_weekly = df_weekly[df_weekly['week'].isin(
-                df_display[df_display['pool_symbol'] == pool]['week'].unique()
-            )]
-        
-        if len(pool_weekly) > 0:
-            with st.expander(f"{pool}"):
-                pool_weekly_summary = pool_weekly.groupby('week').agg({
-                    'bal_emited_votes': 'sum',
-                    'direct_incentives': 'sum'
+            pool_df = df_scenario[df_scenario['pool_symbol'] == pool]
+            if len(pool_df) > 0:
+                pool_bal_col = 'reduced_bal_emitted' if 'reduced_bal_emitted' in pool_df.columns else 'bal_emited_votes'
+                pool_inc_col = 'reduced_incentives' if 'reduced_incentives' in pool_df.columns else 'direct_incentives'
+                pool_weekly_summary = pool_df.groupby('week').agg({
+                    pool_bal_col: 'sum',
+                    pool_inc_col: 'sum'
                 }).reset_index()
-                
-                fig_pool = utils.create_minimalist_chart(
-                    pool_weekly_summary['week'],
-                    pool_weekly_summary['bal_emited_votes'],
-                    'BAL Emitted',
-                    '#67A2E1',
-                    height=300
-                )
-                st.plotly_chart(fig_pool, use_container_width=True, key=f"weekly_pool_{idx}_{hash(pool)}")
+                pool_weekly_summary = pool_weekly_summary.rename(columns={
+                    pool_bal_col: 'bal_emited_votes',
+                    pool_inc_col: 'direct_incentives'
+                })
+                with st.expander(f"{pool}"):
+                    fig_pool = utils.create_minimalist_chart(
+                        pool_weekly_summary['week'],
+                        pool_weekly_summary['bal_emited_votes'],
+                        'BAL Emitted',
+                        '#67A2E1',
+                        height=300
+                    )
+                    st.plotly_chart(fig_pool, use_container_width=True, key=f"weekly_pool_{idx}_{hash(pool)}")
 
 st.markdown("---")
 
@@ -506,7 +540,11 @@ st.markdown("### 📋 Weekly Distribution Table")
 display_columns = ['week', 'pool_category', 'bal_emited_votes', 'direct_incentives', 'pct_of_weekly_emissions']
 df_display_table = df_weekly[display_columns].copy()
 df_display_table.columns = ['Week', 'Category', 'BAL Emitted', 'Incentives (USD)', '% of Weekly Emissions']
-df_display_table = df_display_table.sort_values(['Week', 'Category'])
+# Sort by week and category (Legitimate, Sustainable, Mercenary, Undefined)
+df_display_table['_cat_order'] = df_display_table['Category'].apply(
+    lambda c: KNOWN_CATS.index(c) if c in KNOWN_CATS else len(KNOWN_CATS)
+)
+df_display_table = df_display_table.sort_values(['Week', '_cat_order']).drop(columns=['_cat_order'])
 
 # Format monetary and percentage columns
 if 'Incentives (USD)' in df_display_table.columns:
