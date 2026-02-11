@@ -185,7 +185,7 @@ if df.empty:
 col_title, col_logout = st.columns([1, 0.1])
 with col_title:
     st.markdown('<div class="page-title">Pool Classification Analysis</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-subtitle">From Balancer-All-Tokenomics.csv • Legitimate / Sustainable / Mercenary / Undefined • Top/Worst 20 by protocol fees</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Legitimate / Sustainable / Mercenary / Undefined • Top/Worst 20 by DAO profit</div>', unsafe_allow_html=True)
 with col_logout:
     utils.show_logout_button()
 
@@ -194,17 +194,34 @@ st.markdown("---")
 # Add explanation section (same as emission_impact.py)
 st.markdown("### 📖 Understanding Pool Classification")
 
+KNOWN_CATS = ['Legitimate', 'Sustainable', 'Mercenary', 'Undefined']
+
+
+def _map_pool_cat(x):
+    """Normalize pool_category to a known category."""
+    if pd.isna(x) or x is None or str(x).strip().lower() in ('', 'nan'):
+        return 'Undefined'
+    s = str(x).strip()
+    return s if s in KNOWN_CATS else 'Undefined'
+
+
 with st.expander("ℹ️ What are Legitimate, Sustainable, Mercenary and Undefined Pools?", expanded=False):
     st.markdown("""
-    **Legitimate:** Top pools (high DAO profit, ROI > 1.5x, low incentive dependency) or core with ROI > 1.2x; no incentives and revenue > $15k.
+    **Legitimate Pools:**
+    - Top pools: high DAO profit (>$5k), ROI > 1.5x, low incentive dependency (<50%), or core pools with ROI > 1.2x
+    - No incentives: revenue > $15k
     
-    **Sustainable:** Positive but not elite (DAO profit ≥ 0, ROI ≥ 1.0); or no incentives with revenue in (0, $15k].
+    **Sustainable Pools:**
+    - Positive but not elite: DAO profit ≥ 0, aggregate ROI ≥ 1.0
+    - No incentives: revenue > 0 but ≤ $15k
     
-    **Mercenary:** Zero revenue, ROI < 0.5, negative DAO profit, incentive dependency > 80%, or revenue < $5k.
+    **Mercenary Pools:**
+    - Zero revenue, or ROI < 0.5, or negative DAO profit, or incentive dependency > 80%, or revenue < $5k
     
-    **Undefined:** Don't clearly fit other categories.
+    **Undefined Pools:**
+    - Don't clearly fit other categories (e.g. no incentives and no revenue)
     
-    **Note:** Classification uses aggregate ROI (total revenue / total incentives) and direct incentives.
+    **Core Pools:** Designated as "core" by the protocol; may receive priority in emissions.
     """)
 
 st.markdown("---")
@@ -228,23 +245,45 @@ if 'pool_category' not in df_display.columns:
     st.error("Pool classification not found.")
     st.stop()
 
-category_stats = df_display.groupby('pool_category').agg({
+# Normalize pool_category to known categories
+df_display = df_display.copy()
+df_display['pool_category'] = df_display['pool_category'].apply(_map_pool_cat)
+
+# Build aggregation dict with safe column access
+agg_dict = {
     'pool_symbol': 'nunique',
     'protocol_fee_amount_usd': 'sum',
     'direct_incentives': 'sum',
     'dao_profit_usd': 'sum',
-    'bal_emited_votes': 'sum'
-}).round(2)
+}
+if 'bal_emited_votes' in df_display.columns:
+    agg_dict['bal_emited_votes'] = 'sum'
 
-category_stats.columns = ['Pool Count', 'Total Revenue', 'Total Bribes', 'Total DAO Profit', 'Total BAL Emitted']
+category_stats = df_display.groupby('pool_category').agg(agg_dict).round(2)
 
+# Rename columns and ensure all 4 categories present
+col_map = {
+    'pool_symbol': 'Pool Count',
+    'protocol_fee_amount_usd': 'Total Revenue',
+    'direct_incentives': 'Total Bribes',
+    'dao_profit_usd': 'Total DAO Profit',
+    'bal_emited_votes': 'Total BAL Emitted'
+}
+category_stats = category_stats.rename(columns=col_map)
+category_stats = category_stats.reindex(KNOWN_CATS, fill_value=0).fillna(0)
+
+# Add percentage columns if BAL Emitted exists
+if 'Total BAL Emitted' in category_stats.columns:
+    total_bal = category_stats['Total BAL Emitted'].sum()
+    if total_bal > 0:
+        category_stats['% of Total BAL'] = (category_stats['Total BAL Emitted'] / total_bal * 100).round(2)
+    else:
+        category_stats['% of Total BAL'] = 0.0
 total_bribes = category_stats['Total Bribes'].sum()
-total_bal = category_stats['Total BAL Emitted'].sum()
-
 if total_bribes > 0:
     category_stats['% of Total Bribes'] = (category_stats['Total Bribes'] / total_bribes * 100).round(2)
-if total_bal > 0:
-    category_stats['% of Total BAL'] = (category_stats['Total BAL Emitted'] / total_bal * 100).round(2)
+else:
+    category_stats['% of Total Bribes'] = 0.0
 
 st.markdown("### 📊 Classification Summary")
 
@@ -290,6 +329,7 @@ if 'block_date' in df_display.columns:
     df_display_valid = df_display[df_display['block_date'].notna()].copy()
     
     if not df_display_valid.empty:
+        # pool_category already normalized above
         df_monthly = df_display_valid.groupby([df_display_valid['block_date'].dt.to_period('M'), 'pool_category']).agg({
             'direct_incentives': 'sum',
             'dao_profit_usd': 'sum'
@@ -306,6 +346,15 @@ if not df_monthly.empty:
 
     pivot_incentives = df_monthly.pivot(index='block_date', columns='pool_category', values='direct_incentives').fillna(0)
     pivot_profit = df_monthly.pivot(index='block_date', columns='pool_category', values='dao_profit_usd').fillna(0)
+
+    # Ensure all 4 categories in pivot columns (consistent order)
+    for c in KNOWN_CATS:
+        if c not in pivot_incentives.columns:
+            pivot_incentives[c] = 0
+        if c not in pivot_profit.columns:
+            pivot_profit[c] = 0
+    pivot_incentives = pivot_incentives[KNOWN_CATS]
+    pivot_profit = pivot_profit[KNOWN_CATS]
 
     pivot_incentives.index = pd.to_datetime(pivot_incentives.index)
     pivot_profit.index = pd.to_datetime(pivot_profit.index)

@@ -2409,7 +2409,7 @@ def show_data_load_debug():
 
 
 def classify_pools(df):
-    """Build pool_category (Legitimate / Mercenary / Undefined) from dao_profit, revenue, incentives, ROI."""
+    """Build pool_category (Legitimate / Sustainable / Mercenary / Undefined) from dao_profit, revenue, incentives, ROI."""
     if 'pool_category' in df.columns and df['pool_category'].notna().any():
         return df
     required = ['dao_profit_usd', 'protocol_fee_amount_usd', 'direct_incentives', 'emissions_roi', 'is_core_pool']
@@ -2434,8 +2434,10 @@ def classify_pools(df):
     def classify_pool(row):
         # No incentives at all
         if row['total_incentives'] == 0:
-            if row['total_revenue'] > 10000:
+            if row['total_revenue'] > 15000:
                 return 'Legitimate'
+            if row['total_revenue'] > 0:
+                return 'Sustainable'
             return 'Undefined'
         
         # Has incentives but no revenue → definitely mercenary
@@ -2454,20 +2456,23 @@ def classify_pools(df):
         if row['incentive_dependency'] > 0.8:
             return 'Mercenary'
         
-        # Good profitability → legitimate
-        if row['total_dao_profit'] > 0 and row['avg_roi'] > 1.0:
-            return 'Legitimate'
-        
-        # Core pools with decent ROI → legitimate
-        if row['is_core_pool'] == 1 and row['avg_roi'] > 0.7:
-            return 'Legitimate'
-        
         # Low revenue pools with incentives that didn't match other criteria
-        # These are likely mercenary if revenue is too low
         if row['total_revenue'] < 5000:
             return 'Mercenary'
         
-        # Moderate performance pools → undefined
+        # Legitimate: top pools (high DAO profit >$5k, ROI > 1.5x, low incentive dependency <50%)
+        if row['total_dao_profit'] > 5000 and row['avg_roi'] > 1.5 and row['incentive_dependency'] < 0.5:
+            return 'Legitimate'
+        
+        # Core pools with ROI > 1.2x → legitimate
+        if row['is_core_pool'] == 1 and row['avg_roi'] > 1.2:
+            return 'Legitimate'
+        
+        # Sustainable: positive but not elite (DAO profit ≥ 0, aggregate ROI ≥ 1.0)
+        if row['total_dao_profit'] >= 0 and row['avg_roi'] >= 1.0:
+            return 'Sustainable'
+        
+        # Undefined: don't clearly fit other categories
         return 'Undefined'
     
     pool_agg['pool_category'] = pool_agg.apply(classify_pool, axis=1)
