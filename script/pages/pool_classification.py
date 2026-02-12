@@ -316,6 +316,40 @@ for col in ['% of Total Bribes', '% of Total BAL']:
 
 st.dataframe(category_stats_display, use_container_width=True, hide_index=False)
 
+# Debug: Undefined pools, dead pools, misclassified
+with st.expander("🔍 Debug: Undefined & Dead Pools", expanded=(_count('Undefined') > 0)):
+    undefined_df, dead_df, misclassified_df = utils.debug_pool_classification(df_display)
+    if isinstance(undefined_df, str):
+        st.warning(undefined_df)
+    else:
+        if dead_df is not None and len(dead_df) > 0:
+            st.error(f"**⚠️ {len(dead_df)} dead pools found** (total_revenue=0 AND total_incentives=0). These should NOT appear.")
+            dead_display = dead_df.copy()
+            if 'pool_symbol' in dead_display.columns:
+                dead_display = dead_display[['pool_symbol', 'total_revenue', 'total_incentives', 'total_dao_profit', 'n_records'] + [c for c in dead_display.columns if c not in ['pool_symbol', 'total_revenue', 'total_incentives', 'total_dao_profit', 'n_records']]]
+            st.dataframe(dead_display.head(50), use_container_width=True, hide_index=True)
+            if len(dead_df) > 50:
+                st.caption(f"Showing first 50 of {len(dead_df)} dead pools.")
+        else:
+            st.success("No dead pools (revenue=0 and incentives=0) — all excluded as expected.")
+        if undefined_df is not None and len(undefined_df) > 0:
+            st.warning(f"**{len(undefined_df)} Undefined pools** (expected 0). Metrics below:")
+            id_cols = ['pool_symbol', 'project_contract_address']
+            id_col = next((c for c in id_cols if c in undefined_df.columns), undefined_df.columns[0])
+            metric_cols = ['total_revenue', 'total_incentives', 'total_dao_profit', 'aggregate_roi', 'avg_roi', 'incentive_dependency', 'is_core_pool', 'n_records']
+            undefined_display = undefined_df[[id_col] + [c for c in metric_cols if c in undefined_df.columns]].copy()
+            for c in ['total_revenue', 'total_incentives', 'total_dao_profit']:
+                if c in undefined_display.columns:
+                    undefined_display[c] = undefined_display[c].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
+            st.dataframe(undefined_display, use_container_width=True, hide_index=True)
+            st.caption("Undefined = pools that fall through classification (roi < 0.5 with dao_profit ≥ 0, or other edge cases).")
+        else:
+            st.success("No Undefined pools (expected 0).")
+        if misclassified_df is not None and len(misclassified_df) > 0:
+            st.info(f"**{len(misclassified_df)} misclassified pools** (current vs expected category):")
+            mc_display = misclassified_df[['pool_symbol' if 'pool_symbol' in misclassified_df.columns else misclassified_df.columns[0], 'current_category', 'expected_category', 'total_revenue', 'total_incentives', 'aggregate_roi']].copy() if 'expected_category' in misclassified_df.columns else misclassified_df
+            st.dataframe(mc_display.head(30), use_container_width=True, hide_index=True)
+
 st.markdown("---")
 
 st.markdown("### 📈 Historical Distribution by Category")

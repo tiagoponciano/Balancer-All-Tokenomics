@@ -1974,12 +1974,11 @@ def _load_data_from_neon_views():
                 "REFRESH MATERIALIZED VIEW mv_pool_summary; REFRESH MATERIALIZED VIEW mv_monthly_series; in NEON. "
                 + views_help
             )
-        # Merge so we have month + pool + category + metrics (only bring pool-level cols from pools to avoid duplicate column names)
-        pool_cols = [c for c in ["pool_symbol", "pool_category", "blockchain", "version", "is_core_pool", "gauge_address"] if c in pools.columns]
-        if "pool_symbol" not in pool_cols:
-            raise RuntimeError("mv_pool_summary must have column pool_symbol. " + views_help)
-        df = monthly.merge(pools[pool_cols], on="pool_symbol", how="left", suffixes=("", "_pool"))
-        # After merge, we may have is_core_pool from monthly and is_core_pool_pool from pools; prefer one
+        # Merge so we have month + pool + category + metrics (match notebook: group by project_contract_address)
+        pool_cols = [c for c in ["project_contract_address", "pool_symbol", "pool_category", "blockchain", "version", "is_core_pool", "gauge_address"] if c in pools.columns]
+        if "project_contract_address" not in pool_cols:
+            raise RuntimeError("mv_pool_summary must have column project_contract_address. " + views_help)
+        df = monthly.merge(pools[pool_cols], on="project_contract_address", how="inner", suffixes=("", "_pool"))
         if "is_core_pool_pool" in df.columns:
             df["is_core_pool"] = df["is_core_pool_pool"].fillna(df.get("is_core_pool", 0))
             df = df.drop(columns=["is_core_pool_pool"], errors="ignore")
@@ -1994,7 +1993,9 @@ def _load_data_from_neon_views():
                 df["block_date"] = df["block_date"].dt.tz_localize(None)
         except Exception:
             pass
-        df["direct_incentives"] = pd.to_numeric(df.get("bribe_amount_usd", 0), errors="coerce").fillna(0)
+        # direct_incentives = bal_emited_usd (BAL emissions) — matches notebook; prefer view column
+        _inc_col = "direct_incentives" if "direct_incentives" in df.columns else "bribe_amount_usd"
+        df["direct_incentives"] = pd.to_numeric(df.get(_inc_col, 0), errors="coerce").fillna(0)
         df["protocol_fee_amount_usd"] = pd.to_numeric(df.get("protocol_fee_amount_usd", 0), errors="coerce").fillna(0)
         df["dao_profit_usd"] = df["protocol_fee_amount_usd"] - df["direct_incentives"]
         df["bal_emited_votes"] = pd.to_numeric(df.get("bal_emited_votes", 0), errors="coerce").fillna(0)
@@ -2143,14 +2144,16 @@ def _process_main_data(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     df['is_core_pool'] = pd.to_numeric(df.get('core_non_core', 0), errors='coerce').fillna(0).astype(int)
-    # direct_incentives: prefer column from CSV (e.g. from daily_emissions_usd in Balancer-Tokenomics); else use bribe_amount_usd; else merge from BAL_Emissions_by_GaugePool
+    # direct_incentives: prefer bal_emited_usd (BAL emissions, matches notebook) over bribe_amount_usd (bribes)
     has_inc = 'direct_incentives' in df.columns and pd.to_numeric(df['direct_incentives'], errors='coerce').fillna(0).gt(0).any()
+    has_bal_usd = 'bal_emited_usd' in df.columns and pd.to_numeric(df['bal_emited_usd'], errors='coerce').fillna(0).gt(0).any()
     has_bribes = 'bribe_amount_usd' in df.columns and pd.to_numeric(df['bribe_amount_usd'], errors='coerce').fillna(0).gt(0).any()
     
     if has_inc:
         df['direct_incentives'] = pd.to_numeric(df['direct_incentives'], errors='coerce').fillna(0)
+    elif has_bal_usd:
+        df['direct_incentives'] = pd.to_numeric(df['bal_emited_usd'], errors='coerce').fillna(0)
     elif has_bribes:
-        # Use bribe_amount_usd as direct_incentives (bribes are incentives for votes)
         df['direct_incentives'] = pd.to_numeric(df['bribe_amount_usd'], errors='coerce').fillna(0)
     else:
         df['project_contract_address_norm'] = df['project_contract_address'].astype(str).str.strip().str.lower()
@@ -2205,9 +2208,11 @@ def _process_merged_data(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # Use bribe_amount_usd as direct_incentives if direct_incentives doesn't exist
+    # direct_incentives: prefer bal_emited_usd (BAL emissions) over bribe_amount_usd (matches notebook)
     if 'direct_incentives' not in df.columns:
-        if 'bribe_amount_usd' in df.columns:
+        if 'bal_emited_usd' in df.columns:
+            df['direct_incentives'] = pd.to_numeric(df['bal_emited_usd'], errors='coerce').fillna(0)
+        elif 'bribe_amount_usd' in df.columns:
             df['direct_incentives'] = pd.to_numeric(df['bribe_amount_usd'], errors='coerce').fillna(0)
         else:
             df['direct_incentives'] = 0.0
@@ -2408,84 +2413,173 @@ def show_data_load_debug():
         st.caption("Check Streamlit Cloud logs for [Data load] lines.")
 
 
-def classify_pools(df):
-    """Build pool_category (Legitimate / Sustainable / Mercenary / Undefined) from dao_profit, revenue, incentives, ROI."""
+def classify_pools(df, pool_key='project_contract_address', min_records=4):
+    """
+    Build pool_category (Legitimate / Sustainable / Mercenary / Undefined).
+    Aligned with notebook behavioral engine: uses project_contract_address (not pool_symbol),
+    avg_roi = mean of daily emissions_roi (clipped 0-100), aggregate_roi for ROI when incentives > 0.
+    Excludes dead pools (zero revenue + zero incentives) and pools with < min_records.
+    """
     if 'pool_category' in df.columns and df['pool_category'].notna().any():
         return df
     required = ['dao_profit_usd', 'protocol_fee_amount_usd', 'direct_incentives', 'emissions_roi', 'is_core_pool']
     if not all(c in df.columns for c in required):
         return df
-    pool_agg = df.groupby('pool_symbol').agg({
+    # Use project_contract_address when available (matches notebook); fallback to pool_symbol
+    if pool_key not in df.columns or df[pool_key].isna().all() or (df[pool_key].astype(str).str.strip() == '').all():
+        pool_key = 'pool_symbol'
+    # avg_roi = mean of daily emissions_roi (per veBAL doc), clipped 0-100
+    emissions_clipped = np.clip(df['emissions_roi'].fillna(0), 0.0, 100.0)
+    df_temp = df.copy()
+    df_temp['_emissions_roi_clipped'] = emissions_clipped
+    pool_agg = df_temp.groupby(pool_key).agg({
         'dao_profit_usd': 'sum',
         'protocol_fee_amount_usd': 'sum',
         'direct_incentives': 'sum',
-        'emissions_roi': 'mean',
+        '_emissions_roi_clipped': 'mean',
         'is_core_pool': 'max'
     }).reset_index()
-    
-    pool_agg.columns = ['pool_symbol', 'total_dao_profit', 'total_revenue', 'total_incentives', 'avg_roi', 'is_core_pool']
-    
+    pool_agg.columns = [pool_key, 'total_dao_profit', 'total_revenue', 'total_incentives', 'avg_roi', 'is_core_pool']
+    # min_records filter (notebook: exclude pools with < 4 records)
+    pool_counts = df_temp.groupby(pool_key).size()
+    pool_agg['_n_records'] = pool_agg[pool_key].map(pool_counts).fillna(0).astype(int)
+    pool_agg = pool_agg[pool_agg['_n_records'] >= min_records].copy()
+    # Exclude dead pools (zero revenue + zero incentives) - notebook excludes these
+    dead_mask = (pool_agg['total_revenue'] == 0) & (pool_agg['total_incentives'] == 0)
+    pool_agg = pool_agg[~dead_mask].copy()
+    # aggregate_roi = total_rev / total_incentives (used for classification when incentives > 0)
+    pool_agg['aggregate_roi'] = np.where(
+        pool_agg['total_incentives'] > 0,
+        np.clip(pool_agg['total_revenue'] / pool_agg['total_incentives'], 0.0, 100.0),
+        0.0
+    )
     pool_agg['incentive_dependency'] = np.where(
         pool_agg['total_revenue'] > 0,
         pool_agg['total_incentives'] / pool_agg['total_revenue'],
         1.0
     )
-    
+
     def classify_pool(row):
-        # No incentives at all
-        if row['total_incentives'] == 0:
-            if row['total_revenue'] > 15000:
+        total_incentives = row.get('total_incentives', 0) or 0
+        total_revenue = row.get('total_revenue', 0) or 0
+        total_dao_profit = row.get('total_dao_profit', 0) or 0
+        avg_roi = row.get('avg_roi', 0) or 0
+        aggregate_roi = row.get('aggregate_roi', 0) or 0
+        roi = aggregate_roi if total_incentives > 0 else avg_roi
+        is_core_pool = int(row.get('is_core_pool', 0) or 0)
+        incentive_dependency = row.get('incentive_dependency', 1.0) or 1.0
+
+        # No incentives
+        if total_incentives == 0:
+            if total_revenue > 15000:
                 return 'Legitimate'
-            if row['total_revenue'] > 0:
+            if total_revenue > 0:
                 return 'Sustainable'
             return 'Undefined'
-        
-        # Has incentives but no revenue → definitely mercenary
-        if row['total_revenue'] == 0:
+
+        # Clearly mercenary
+        if total_revenue == 0:
             return 'Mercenary'
-        
-        # Very poor ROI (revenue/incentives < 0.5) → mercenary
-        if row['avg_roi'] < 0.5:
+        if roi < 0.5:
             return 'Mercenary'
-        
-        # Large negative DAO profit → mercenary
-        if row['total_dao_profit'] < -1000:
+        if total_dao_profit < 0:
             return 'Mercenary'
-        
-        # High dependency on incentives (>80% of revenue from incentives) → mercenary
-        if row['incentive_dependency'] > 0.8:
+        if incentive_dependency > 0.8:
             return 'Mercenary'
-        
-        # Low revenue pools with incentives that didn't match other criteria
-        if row['total_revenue'] < 5000:
+        if total_revenue < 5000:
             return 'Mercenary'
-        
-        # Legitimate: top pools (high DAO profit >$5k, ROI > 1.5x, low incentive dependency <50%)
-        if row['total_dao_profit'] > 5000 and row['avg_roi'] > 1.5 and row['incentive_dependency'] < 0.5:
+
+        # Legitimate (top pools)
+        if total_dao_profit > 5000 and roi > 1.5 and incentive_dependency < 0.5:
             return 'Legitimate'
-        
-        # Core pools with ROI > 1.2x → legitimate
-        if row['is_core_pool'] == 1 and row['avg_roi'] > 1.2:
+        if is_core_pool == 1 and roi > 1.2 and total_dao_profit > 0:
             return 'Legitimate'
-        
-        # Sustainable: positive but not elite (DAO profit ≥ 0, aggregate ROI ≥ 1.0)
-        if row['total_dao_profit'] >= 0 and row['avg_roi'] >= 1.0:
+
+        # Sustainable (positive but not elite) — include roi in [0.5, 1.0) to avoid Undefined
+        if total_dao_profit >= 0 and roi >= 0.5:
             return 'Sustainable'
-        
-        # Undefined: don't clearly fit other categories
+
         return 'Undefined'
-    
+
     pool_agg['pool_category'] = pool_agg.apply(classify_pool, axis=1)
-    
+    pool_agg = pool_agg.drop(columns=['_n_records'], errors='ignore')
+
     df = df.merge(
-        pool_agg[['pool_symbol', 'pool_category']],
-        on='pool_symbol',
+        pool_agg[[pool_key, 'pool_category']],
+        on=pool_key,
         how='left'
     )
-    
+    # Exclude dead and low-record pools from analysis (match notebook)
+    valid_pools = set(pool_agg[pool_key].dropna().astype(str).str.strip())
+    valid_pools.discard('')
+    if valid_pools:
+        mask = df[pool_key].astype(str).str.strip().isin(valid_pools)
+        df = df.loc[mask].copy()
     df['pool_category'] = df['pool_category'].fillna('Undefined')
     
     return df
+
+def debug_pool_classification(df):
+    """
+    Debug utility: compute pool-level metrics and return Undefined pools, dead pools,
+    and a suggested reclassification. Dead pools (revenue=0, incentives=0) should not appear.
+    """
+    pool_key = 'project_contract_address' if ('project_contract_address' in df.columns and df['project_contract_address'].notna().any() and (df['project_contract_address'].astype(str).str.strip() != '').any()) else 'pool_symbol'
+    required = ['protocol_fee_amount_usd', 'direct_incentives', 'dao_profit_usd']
+    if not all(c in df.columns for c in required):
+        return None, None, "Missing required columns"
+    df_t = df.copy()
+    if 'emissions_roi' not in df_t.columns:
+        inc = df_t['direct_incentives']
+        df_t['emissions_roi'] = np.where(inc > 0, df_t['protocol_fee_amount_usd'] / inc, 0.0)
+    emissions_clipped = np.clip(df_t['emissions_roi'].fillna(0), 0.0, 100.0)
+    df_t['_er'] = emissions_clipped
+    agg_dict = {'protocol_fee_amount_usd': 'sum', 'direct_incentives': 'sum', 'dao_profit_usd': 'sum', '_er': 'mean'}
+    if 'pool_symbol' in df_t.columns and pool_key != 'pool_symbol':
+        agg_dict['pool_symbol'] = 'first'
+    agg = df_t.groupby(pool_key).agg(agg_dict).reset_index()
+    agg = agg.rename(columns={'protocol_fee_amount_usd': 'total_revenue', 'direct_incentives': 'total_incentives', 'dao_profit_usd': 'total_dao_profit', '_er': 'avg_roi'})
+    agg['aggregate_roi'] = np.where(agg['total_incentives'] > 0, np.clip(agg['total_revenue'] / agg['total_incentives'], 0, 100), 0.0)
+    agg['incentive_dependency'] = np.where(agg['total_revenue'] > 0, agg['total_incentives'] / agg['total_revenue'], 1.0)
+    n_rec = df_t.groupby(pool_key).size()
+    agg['n_records'] = agg[pool_key].map(n_rec).fillna(0).astype(int)
+    if 'is_core_pool' in df.columns:
+        core_max = df_t.groupby(pool_key)['is_core_pool'].max()
+        agg['is_core_pool'] = agg[pool_key].map(core_max).fillna(0).astype(int)
+    else:
+        agg['is_core_pool'] = 0
+    # Dead pools (should never appear)
+    dead = agg[(agg['total_revenue'] == 0) & (agg['total_incentives'] == 0)].copy()
+    # Pool category from current data
+    if 'pool_category' in df.columns:
+        cat_first = df.groupby(pool_key)['pool_category'].first()
+        agg['current_category'] = agg[pool_key].map(cat_first)
+    else:
+        agg['current_category'] = 'N/A'
+    # Compute expected category (notebook logic)
+    def _classify(r):
+        ti, tr, dp = r['total_incentives'], r['total_revenue'], r['total_dao_profit']
+        roi = r['aggregate_roi'] if ti > 0 else r['avg_roi']
+        inv = r['incentive_dependency']
+        core = int(r.get('is_core_pool', 0) or 0)
+        if ti == 0:
+            if tr > 15000: return 'Legitimate'
+            if tr > 0: return 'Sustainable'
+            return 'Undefined'
+        if tr == 0 or roi < 0.5 or dp < 0 or inv > 0.8 or tr < 5000:
+            return 'Mercenary'
+        if dp > 5000 and roi > 1.5 and inv < 0.5:
+            return 'Legitimate'
+        if core == 1 and roi > 1.2 and dp > 0:
+            return 'Legitimate'
+        if dp >= 0 and roi >= 0.5:
+            return 'Sustainable'
+        return 'Undefined'
+    agg['expected_category'] = agg.apply(_classify, axis=1)
+    undefined = agg[agg['expected_category'] == 'Undefined'].copy()
+    misclassified = agg[(agg['current_category'] != agg['expected_category']) & (agg['current_category'] != 'N/A')].copy()
+    return undefined, dead, misclassified
+
 
 def _normalize_gauge(addr):
     if pd.isna(addr):
