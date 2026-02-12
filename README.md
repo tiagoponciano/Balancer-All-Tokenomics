@@ -87,6 +87,13 @@ The app loads `.env` from the project root. When data comes from NEON, the sideb
 
 Streamlit Cloud has a ~1 GB memory limit. Loading the full dataset (100k+ rows) can exceed it. **You don’t need to change to fullstack.** Deploy the same Streamlit app on a host with more RAM (e.g. Railway, Render, Fly.io, or a VPS). See **[DEPLOYMENT.md](DEPLOYMENT.md)** for step-by-step options and an optional API backend.
 
+#### Scheduled updates (GitHub Actions)
+
+- **1st of month, 00:00 UTC:** Full pipeline (fetch + merge + upload to NEON)
+- **1st of month, 01:00 UTC:** Refresh materialized views (1 hour later)
+
+See **[SCHEDULED_UPDATES.md](SCHEDULED_UPDATES.md)** for setup (secrets, NEON pg_cron, cron.neon.tech).
+
 #### Monthly incremental runs
 
 When you rerun the pipeline **without** `--start-date` / `--end-date`, the script uses **incremental** dates:

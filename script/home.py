@@ -195,6 +195,7 @@ col_title, col_logout = st.columns([1, 0.1])
 with col_title:
     st.markdown('<div class="page-title">Balancer Tokenomics Analysis</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Historical analysis with simulation controls</div>', unsafe_allow_html=True)
+    utils.show_data_source_inline()
 with col_logout:
     utils.show_logout_button()
 
