@@ -1993,8 +1993,13 @@ def _load_data_from_neon_views():
                 df["block_date"] = df["block_date"].dt.tz_localize(None)
         except Exception:
             pass
-        # direct_incentives = bal_emited_usd (BAL emissions) — matches notebook; prefer view column
-        _inc_col = "direct_incentives" if "direct_incentives" in df.columns else "bribe_amount_usd"
+        # direct_incentives = bal_emited_usd (BAL emissions) — matches notebook; prefer view column, then bal_emited_usd
+        if "direct_incentives" in df.columns:
+            _inc_col = "direct_incentives"
+        elif "bal_emited_usd" in df.columns:
+            _inc_col = "bal_emited_usd"
+        else:
+            _inc_col = "bribe_amount_usd"  # fallback for compatibility
         df["direct_incentives"] = pd.to_numeric(df.get(_inc_col, 0), errors="coerce").fillna(0)
         df["protocol_fee_amount_usd"] = pd.to_numeric(df.get("protocol_fee_amount_usd", 0), errors="coerce").fillna(0)
         df["dao_profit_usd"] = df["protocol_fee_amount_usd"] - df["direct_incentives"]
@@ -2396,16 +2401,29 @@ def show_data_source_badge():
         st.sidebar.caption(f"📊 Data: {source}")
 
 
+def show_data_source_inline():
+    """Show compact data source + row count in main content (for visibility without opening sidebar)."""
+    source = st.session_state.get("tokenomics_data_source")
+    info = st.session_state.get("data_load_debug")
+    if not source and not info:
+        return
+    rows = info.get("rows", 0) if info else 0
+    src = source or info.get("source", "?")
+    st.caption(f"📊 Data: **{src}** · {rows:,} rows")
+
+
 def show_data_load_debug():
     """Show data-load debug info in sidebar (for Streamlit Cloud: confirm USE_NEON_VIEWS and which source was used)."""
     info = st.session_state.get("data_load_debug")
     if not info:
         return
     with st.sidebar.expander("🔍 Data load debug", expanded=False):
-        st.write(f"**USE_NEON_VIEWS:** `{info.get('use_neon_views', '?')}`")
-        st.write(f"**DATABASE_URL set:** `{info.get('database_url_set', '?')}`")
         st.write(f"**Source:** {info.get('source') or '(none)'}")
         st.write(f"**Rows:** {info.get('rows', 0):,}")
+        st.write(f"**USE_NEON_VIEWS:** `{info.get('use_neon_views', '?')}`")
+        st.write(f"**DATABASE_URL set:** `{info.get('database_url_set', '?')}`")
+        if info.get("database_url_set"):
+            st.write(f"**NEON_TABLE:** `{NEON_TABLE_MAIN}`")
         if info.get("message"):
             st.caption(f"Message: {info['message']}")
         if info.get("database_url_set") and not info.get("use_neon_views") and info.get("source") == "NEON (full table)":

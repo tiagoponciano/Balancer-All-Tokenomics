@@ -1,0 +1,41 @@
+# Refresh NEON materialized views (mv_pool_summary, mv_monthly_series)
+# Runs on the 1st of every month at 01:00 UTC (1 hour after Monthly NEON Update)
+#
+# Required secrets: DATABASE_URL (same as monthly workflow)
+#
+# Run this after main.py has uploaded new data to NEON.
+name: Refresh NEON Views
+
+on:
+  schedule:
+    # 1st of every month at 01:00 UTC
+    - cron: "0 1 1 * *"
+  workflow_dispatch:
+
+jobs:
+  refresh-views:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install sqlalchemy psycopg2-binary python-dotenv
+
+      - name: Refresh materialized views
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'service')
+          from upload_to_neon import refresh_materialized_views, get_engine
+          refresh_materialized_views(get_engine())
+          "
