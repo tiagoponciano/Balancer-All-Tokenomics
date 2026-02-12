@@ -287,24 +287,23 @@ else:
 
 st.markdown("### 📊 Classification Summary")
 
-col1, col2, col3, col4 = st.columns(4)
-
 def _count(cat):
     return category_stats.loc[cat, 'Pool Count'] if cat in category_stats.index else 0
 
-with col1:
-    st.metric("Legitimate Pools", f"{_count('Legitimate'):.0f}")
-with col2:
-    st.metric("Sustainable Pools", f"{_count('Sustainable'):.0f}")
-with col3:
-    st.metric("Mercenary Pools", f"{_count('Mercenary'):.0f}")
-with col4:
-    st.metric("Undefined Pools", f"{_count('Undefined'):.0f}")
+# Show only categories that have data
+active_cats = [c for c in KNOWN_CATS if _count(c) > 0]
+if active_cats:
+    cols = st.columns(len(active_cats))
+    for i, cat in enumerate(active_cats):
+        with cols[i]:
+            st.metric(f"{cat} Pools", f"{_count(cat):.0f}")
+else:
+    st.info("No pool data in selected filters.")
 
 st.markdown("---")
 
-# Format monetary columns for display
-category_stats_display = category_stats.copy()
+# Format monetary columns for display (only categories with data)
+category_stats_display = category_stats.loc[active_cats].copy() if active_cats else category_stats.copy()
 for col in ['Total Revenue', 'Total Bribes', 'Total DAO Profit']:
     if col in category_stats_display.columns:
         category_stats_display[col] = category_stats_display[col].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
@@ -381,14 +380,14 @@ if not df_monthly.empty:
     pivot_incentives = df_monthly.pivot(index='block_date', columns='pool_category', values='direct_incentives').fillna(0)
     pivot_profit = df_monthly.pivot(index='block_date', columns='pool_category', values='dao_profit_usd').fillna(0)
 
-    # Ensure all 4 categories in pivot columns (consistent order)
-    for c in KNOWN_CATS:
-        if c not in pivot_incentives.columns:
-            pivot_incentives[c] = 0
-        if c not in pivot_profit.columns:
-            pivot_profit[c] = 0
-    pivot_incentives = pivot_incentives[KNOWN_CATS]
-    pivot_profit = pivot_profit[KNOWN_CATS]
+    # Keep only categories that exist in data (order by KNOWN_CATS)
+    chart_cats = [c for c in KNOWN_CATS if c in pivot_incentives.columns]
+    if chart_cats:
+        for c in chart_cats:
+            if c not in pivot_profit.columns:
+                pivot_profit[c] = 0
+        pivot_incentives = pivot_incentives[chart_cats]
+        pivot_profit = pivot_profit[chart_cats]
 
     pivot_incentives.index = pd.to_datetime(pivot_incentives.index)
     pivot_profit.index = pd.to_datetime(pivot_profit.index)

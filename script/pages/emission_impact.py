@@ -327,38 +327,32 @@ if total_emissions > 0:
 else:
     cat_pcts = {c: 0.0 for c in KNOWN_CATS}
 
-# Rebuild emissions_by_category for the detailed table (index = known categories)
+# Only show categories that have data
+active_cats = [c for c in KNOWN_CATS if cat_counts[c] > 0]
+
+# Rebuild emissions_by_category for the detailed table (only active categories)
 emissions_by_category = pd.DataFrame({
-    'Total BAL Emitted': [cat_totals[c] for c in KNOWN_CATS],
-    'Pool Count': [cat_counts[c] for c in KNOWN_CATS],
-    'Percentage': [cat_pcts[c] for c in KNOWN_CATS]
-}, index=KNOWN_CATS)
+    'Total BAL Emitted': [cat_totals[c] for c in active_cats],
+    'Pool Count': [cat_counts[c] for c in active_cats],
+    'Percentage': [cat_pcts[c] for c in active_cats]
+}, index=active_cats) if active_cats else pd.DataFrame()
 
-# Display aggregated values (5 columns: Legitimate, Sustainable, Mercenary, Undefined, Total)
-col1, col2, col3, col4, col5 = st.columns(5)
+# Display aggregated values (only categories with data + Total)
+metric_cols = st.columns(len(active_cats) + 1) if active_cats else [st.container()]
+for i, cat in enumerate(active_cats):
+    with metric_cols[i]:
+        st.metric(f"{cat} Emissions", f"{cat_totals[cat]:,.0f} BAL", f"{cat_pcts[cat]:.1f}%", help=f"Total BAL emitted to {cat.lower()} pools")
+if active_cats:
+    with metric_cols[-1]:
+        st.metric("Total Emissions", f"{total_emissions:,.0f} BAL", help="Total BAL emitted across all pools")
 
-legitimate_emissions, legitimate_pct = cat_totals['Legitimate'], cat_pcts['Legitimate']
-sustainable_emissions, sustainable_pct = cat_totals['Sustainable'], cat_pcts['Sustainable']
-mercenary_emissions, mercenary_pct = cat_totals['Mercenary'], cat_pcts['Mercenary']
-undefined_emissions, undefined_pct = cat_totals['Undefined'], cat_pcts['Undefined']
-
-with col1:
-    st.metric("Legitimate Emissions", f"{legitimate_emissions:,.0f} BAL", f"{legitimate_pct:.1f}%", help="Total BAL emitted to legitimate pools")
-with col2:
-    st.metric("Sustainable Emissions", f"{sustainable_emissions:,.0f} BAL", f"{sustainable_pct:.1f}%", help="Total BAL emitted to sustainable pools")
-with col3:
-    st.metric("Mercenary Emissions", f"{mercenary_emissions:,.0f} BAL", f"{mercenary_pct:.1f}%", help="Total BAL emitted to mercenary pools")
-with col4:
-    st.metric("Undefined Emissions", f"{undefined_emissions:,.0f} BAL", f"{undefined_pct:.1f}%", help="Total BAL emitted to undefined pools")
-with col5:
-    st.metric("Total Emissions", f"{total_emissions:,.0f} BAL", help="Total BAL emitted across all pools")
-
-# Display detailed table
+# Display detailed table (only categories with data)
 st.markdown("#### 📋 Detailed Breakdown")
-emissions_display = emissions_by_category.copy()
-emissions_display['Total BAL Emitted'] = emissions_display['Total BAL Emitted'].apply(lambda x: f"{x:,.0f}")
-emissions_display['Percentage'] = emissions_display['Percentage'].apply(lambda x: f"{x:.2f}%")
-st.dataframe(emissions_display, use_container_width=True, hide_index=False)
+if not emissions_by_category.empty:
+    emissions_display = emissions_by_category.copy()
+    emissions_display['Total BAL Emitted'] = emissions_display['Total BAL Emitted'].apply(lambda x: f"{x:,.0f}")
+    emissions_display['Percentage'] = emissions_display['Percentage'].apply(lambda x: f"{x:.2f}%")
+    st.dataframe(emissions_display, use_container_width=True, hide_index=False)
 
 # Temporal chart for emissions by category
 col_chart_title_legit, col_toggle_legit = st.columns([1, 0.15])
@@ -395,12 +389,11 @@ emissions_temporal = df_emissions_chart.groupby(['month', 'pool_category']).agg(
     bal_col: 'sum'
 }).reset_index()
 
-# Pivot for chart - ensure all 4 categories as columns in fixed order
+# Pivot for chart - only categories that exist in data
 pivot_emissions = emissions_temporal.pivot(index='month', columns='pool_category', values=bal_col).fillna(0)
-for c in KNOWN_CATS:
-    if c not in pivot_emissions.columns:
-        pivot_emissions[c] = 0
-pivot_emissions = pivot_emissions[KNOWN_CATS]
+chart_cats = [c for c in KNOWN_CATS if c in pivot_emissions.columns]
+if chart_cats:
+    pivot_emissions = pivot_emissions[chart_cats]
 
 # Normalize to percentage if toggle is on
 if show_percentage_legit:
@@ -652,9 +645,10 @@ baseline = df_baseline.groupby('pool_category').agg({
 baseline.columns = ['BAL Emitted', 'Total Incentives', 'Total Revenue', 'Total DAO Profit']
 # Ensure all 4 categories in baseline (reindex, fill 0)
 baseline = baseline.reindex(KNOWN_CATS, fill_value=0).fillna(0)
+baseline_active = [c for c in KNOWN_CATS if (baseline.loc[c, 'BAL Emitted'] if 'BAL Emitted' in baseline.columns else 0) > 0 or (baseline.loc[c, 'Total Revenue'] if 'Total Revenue' in baseline.columns else 0) > 0]
+baseline_display = baseline.loc[baseline_active].copy() if baseline_active else baseline.copy()
 
 # Format monetary columns
-baseline_display = baseline.copy()
 for col in ['Total Incentives', 'Total Revenue', 'Total DAO Profit']:
     if col in baseline_display.columns:
         baseline_display[col] = baseline_display[col].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
@@ -700,6 +694,7 @@ if 'reduced_bal_emitted' in df_scenario_norm.columns:
 scenario_summary = df_scenario_norm.groupby('pool_category').agg(agg_dict).round(2)
 # Ensure all 4 categories (reindex, fill 0)
 scenario_summary = scenario_summary.reindex(KNOWN_CATS, fill_value=0).fillna(0)
+scenario_active = baseline_active  # same categories as baseline
 
 # Calculate additional metrics
 if 'reduced_bal_emitted' in scenario_summary.columns and 'bal_emited_votes' in scenario_summary.columns:
@@ -739,7 +734,7 @@ if 'profit_change_pct' in scenario_summary.columns:
 scenario_summary = scenario_summary.rename(columns=column_mapping)
 
 # Format monetary columns for display (keep reduced_bal_emitted in scenario_summary for comparison chart)
-scenario_summary_display = scenario_summary.copy()
+scenario_summary_display = scenario_summary.loc[scenario_active].copy() if scenario_active else scenario_summary.copy()
 if 'reduced_bal_emitted' in scenario_summary_display.columns:
     scenario_summary_display = scenario_summary_display.drop(columns=['reduced_bal_emitted'])
 monetary_cols = ['Reduced Incentives', 'Total Revenue', 'New DAO Profit', 'Original Incentives', 'Incentive Reduction', 'Profit Change']
@@ -755,9 +750,9 @@ st.dataframe(scenario_summary_display, use_container_width=True, hide_index=Fals
 
 st.markdown("### 📊 Comparison Chart: Baseline vs Scenario")
 
-# Build comparison data
+# Build comparison data (only categories with data)
 comparison_data = []
-for category in baseline.index:
+for category in baseline_active:
     comparison_data.append({
         'Category': category,
         'Baseline': baseline.loc[category, 'Total DAO Profit'],
@@ -823,7 +818,7 @@ if len(df_comparison) > 0:
 
     # Comparison chart: Baseline vs Scenario – BAL Emitted (same layout, Y = emissions)
     comparison_emissions = []
-    for category in baseline.index:
+    for category in baseline_active:
         scenario_bal = scenario_summary.loc[category, 'reduced_bal_emitted'] if category in scenario_summary.index and 'reduced_bal_emitted' in scenario_summary.columns else 0
         comparison_emissions.append({
             'Category': category,

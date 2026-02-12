@@ -232,3 +232,63 @@ def fetch_and_save_chunked(
         print(f"✗ Error processing query {query_id}: {str(e)}")
         print(f"{'='*60}")
         return False, 0, None
+
+
+def fetch_and_save_with_params(
+    api_key: str,
+    query_id: int,
+    params: Dict[str, str],
+    output_filename: str,
+    project_root: Path,
+    merge_with_existing: bool = False,
+    merge_key_columns: Optional[List[str]] = None,
+) -> Tuple[bool, int, Optional[Path]]:
+    """
+    Fetches a Dune query with parameters (e.g. start_date, end_date) and saves to CSV.
+    Used for Bribes (start_date) and Votes_Emissions (start_date, end_date).
+    When merge_with_existing=True, appends to existing file and dedupes (for incremental runs).
+    """
+    output_dir = project_root / "data"
+    output_dir.mkdir(exist_ok=True)
+    output_path = output_dir / output_filename
+
+    try:
+        print(f"\n{'='*60}")
+        print(f"Processing Query {query_id} (with params)")
+        print(f"  Params: {params}")
+        print(f"{'='*60}")
+        rows = fetch_dune_query_with_params(api_key, query_id, params)
+        if not rows:
+            print(f"✗ No data returned for query {query_id}")
+            return False, 0, None
+
+        df = pd.DataFrame(rows)
+        df = df.drop_duplicates()
+
+        if merge_with_existing and output_path.exists() and output_path.stat().st_size > 0:
+            try:
+                existing = pd.read_csv(output_path)
+                key_cols = merge_key_columns or []
+                if not key_cols:
+                    key_cols = [c for c in ["day", "proposal_hash", "gauge_address"] if c in existing.columns and c in df.columns]
+                if not key_cols and len(existing.columns) >= 2:
+                    key_cols = list(existing.columns[:2])
+                combined = pd.concat([existing, df], ignore_index=True)
+                before = len(combined)
+                combined = combined.drop_duplicates(subset=key_cols, keep="last")
+                if len(combined) < before:
+                    print(f"   ℹ Merged with existing: {len(existing):,} + {len(df):,} → {len(combined):,} (removed {before - len(combined)} duplicates)")
+                else:
+                    print(f"   ℹ Merged with existing: {len(existing):,} + {len(df):,} → {len(combined):,}")
+                df = combined
+            except Exception as e:
+                print(f"   ⚠ Could not merge with existing file: {e}. Overwriting.")
+
+        df.to_csv(output_path, index=False)
+        print(f"✓ Successfully saved {len(df):,} rows to {output_filename}")
+        print(f"{'='*60}")
+        return True, len(df), output_path
+    except Exception as e:
+        print(f"✗ Error processing query {query_id}: {str(e)}")
+        print(f"{'='*60}")
+        return False, 0, None

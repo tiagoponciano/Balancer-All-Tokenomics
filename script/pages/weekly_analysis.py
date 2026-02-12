@@ -322,9 +322,10 @@ summary_stats = df_weekly.groupby('pool_category').agg({
 
 summary_stats.columns = ['Total BAL Emitted', 'Total USD Value', 'Weeks Active']
 summary_stats = summary_stats.reindex(KNOWN_CATS, fill_value=0).fillna(0)
+active_cats = [c for c in KNOWN_CATS if (summary_stats.loc[c, 'Total BAL Emitted'] if c in summary_stats.index else 0) > 0 or (summary_stats.loc[c, 'Total USD Value'] if c in summary_stats.index else 0) > 0]
 
-# Format monetary column for display
-summary_stats_display = summary_stats.copy()
+# Format monetary column for display (only categories with data)
+summary_stats_display = summary_stats.loc[active_cats].copy() if active_cats else summary_stats.copy()
 if 'Total USD Value' in summary_stats_display.columns:
     summary_stats_display['Total USD Value'] = summary_stats_display['Total USD Value'].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
 
@@ -337,14 +338,14 @@ st.markdown("### 📈 Weekly Trends")
 pivot_weekly = df_weekly.pivot(index='week', columns='pool_category', values='bal_emited_votes').fillna(0)
 pivot_weekly_incentives = df_weekly.pivot(index='week', columns='pool_category', values='direct_incentives').fillna(0)
 
-# Ensure all 4 categories in pivot columns (consistent order)
-for c in KNOWN_CATS:
-    if c not in pivot_weekly.columns:
-        pivot_weekly[c] = 0
-    if c not in pivot_weekly_incentives.columns:
-        pivot_weekly_incentives[c] = 0
-pivot_weekly = pivot_weekly[KNOWN_CATS]
-pivot_weekly_incentives = pivot_weekly_incentives[KNOWN_CATS]
+# Keep only categories that exist in data (order by KNOWN_CATS)
+chart_cats = [c for c in KNOWN_CATS if c in pivot_weekly.columns]
+if chart_cats:
+    for c in chart_cats:
+        if c not in pivot_weekly_incentives.columns:
+            pivot_weekly_incentives[c] = 0
+    pivot_weekly = pivot_weekly[chart_cats]
+    pivot_weekly_incentives = pivot_weekly_incentives[chart_cats]
 
 colors = {'Legitimate': '#2ecc71', 'Sustainable': '#3498db', 'Mercenary': '#e74c3c', 'Undefined': '#95a5a6'}
 
@@ -540,9 +541,13 @@ st.markdown("### 📋 Weekly Distribution Table")
 display_columns = ['week', 'pool_category', 'bal_emited_votes', 'direct_incentives', 'pct_of_weekly_emissions']
 df_display_table = df_weekly[display_columns].copy()
 df_display_table.columns = ['Week', 'Category', 'BAL Emitted', 'Incentives (USD)', '% of Weekly Emissions']
-# Sort by week and category (Legitimate, Sustainable, Mercenary, Undefined)
+# Filter to only categories with data
+if active_cats:
+    df_display_table = df_display_table[df_display_table['Category'].isin(active_cats)]
+# Sort by week and category (order by active_cats or KNOWN_CATS)
+_sort_cats = active_cats if active_cats else KNOWN_CATS
 df_display_table['_cat_order'] = df_display_table['Category'].apply(
-    lambda c: KNOWN_CATS.index(c) if c in KNOWN_CATS else len(KNOWN_CATS)
+    lambda c: _sort_cats.index(c) if c in _sort_cats else len(_sort_cats)
 )
 df_display_table = df_display_table.sort_values(['Week', '_cat_order']).drop(columns=['_cat_order'])
 
