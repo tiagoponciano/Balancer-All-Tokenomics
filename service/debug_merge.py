@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to debug why the merge is not working
 """
@@ -12,7 +11,6 @@ print("=" * 70)
 print("DEBUG: Merge Issue Investigation")
 print("=" * 70)
 
-# Load files
 vebal_df = pd.read_csv(DATA_DIR / "veBAL.csv")
 votes_bribes_df = pd.read_csv(DATA_DIR / "votes_bribes_merged.csv")
 
@@ -56,7 +54,6 @@ print(f"   veBAL date dtype: {vebal_df['block_date'].dtype}")
 print(f"   votes_bribes date dtype: {votes_bribes_df['day'].dtype}")
 
 print("\n5. Looking for exact matches...")
-# Normalize
 vebal_test = vebal_df[vebal_df['gauge_address'].notna()].copy()
 vebal_test['gauge_lower'] = vebal_test['gauge_address'].str.lower().str.strip()
 vebal_test['blockchain_lower'] = vebal_test['blockchain'].str.lower().str.strip()
@@ -67,7 +64,6 @@ votes_test['gauge_lower'] = votes_test['gauge_address'].str.lower().str.strip()
 votes_test['blockchain_lower'] = votes_test['blockchain'].str.lower().str.strip()
 votes_test['date_only'] = votes_test['day'].dt.date
 
-# Try merge
 merged_test = pd.merge(
     vebal_test[['gauge_lower', 'blockchain_lower', 'date_only']].drop_duplicates(),
     votes_test[['gauge_lower', 'blockchain_lower', 'date_only']].drop_duplicates(),

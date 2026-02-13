@@ -5,13 +5,11 @@ import pandas as pd
 
 st.set_page_config(page_title="Pool Classification", layout="wide", page_icon="🏷️")
 
-# Check authentication
 if not utils.check_authentication():
     st.stop()
 
 utils.inject_css()
 
-# Script para aplicar IDs específicos aos botões
 import streamlit.components.v1 as components
 
 components.html("""
@@ -150,157 +148,156 @@ if df.empty:
     st.error("❌ Unable to load data.")
     st.stop()
 
-# Initialize session state - default to 'all' (show everything)
+utils.show_data_source_badge()
+utils.show_data_load_debug()
+
 if 'pool_filter_mode_class' not in st.session_state:
-    st.session_state.pool_filter_mode_class = 'all'  # Default: show all pools
+    st.session_state.pool_filter_mode_class = 'all'  
 
 if 'version_filter_class' not in st.session_state:
-    st.session_state.version_filter_class = 'all'  # Default: show all versions
+    st.session_state.version_filter_class = 'all'  
 
 if 'gauge_filter_class' not in st.session_state:
-    st.session_state.gauge_filter_class = 'all'  # Default: show all pools
+    st.session_state.gauge_filter_class = 'all'  
 
-# Version filter at the top of sidebar
 utils.show_version_filter('version_filter_class')
 
-# Gauge filter (Gauge / No Gauge)
 utils.show_gauge_filter('gauge_filter_class')
 
-# Pool filters at the top of sidebar
 utils.show_pool_filters('pool_filter_mode_class')
 
-# Date filter: Year + Quarter (using dynamic filters)
 df = utils.show_date_filter_sidebar(df, key_prefix="date_filter_class")
 
-# Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_class')
 
-# Apply gauge filter
 df = utils.apply_gauge_filter(df, 'gauge_filter_class')
 
 if df.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")
 
-# Page Header with logout button
 col_title, col_logout = st.columns([1, 0.1])
 with col_title:
     st.markdown('<div class="page-title">Pool Classification Analysis</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-subtitle">From Balancer-All-Tokenomics.csv • Legitimate vs Mercenary • Top/Worst 20 by protocol fees</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Legitimate / Sustainable / Mercenary / Undefined • Top/Worst 20 by DAO profit</div>', unsafe_allow_html=True)
+    utils.show_data_source_inline()
 with col_logout:
     utils.show_logout_button()
 
 st.markdown("---")
 
-# Add explanation section (same as emission_impact.py)
 st.markdown("### 📖 Understanding Pool Classification")
 
-with st.expander("ℹ️ What are Legitimate vs Mercenary Pools?", expanded=False):
+KNOWN_CATS = ['Legitimate', 'Sustainable', 'Mercenary', 'Undefined']
+
+
+def _map_pool_cat(x):
+    """Normalize pool_category to a known category."""
+    if pd.isna(x) or x is None or str(x).strip().lower() in ('', 'nan'):
+        return 'Undefined'
+    s = str(x).strip()
+    return s if s in KNOWN_CATS else 'Undefined'
+
+
+with st.expander("ℹ️ What are Legitimate, Sustainable, Mercenary and Undefined Pools?", expanded=False):
     st.markdown("""
     **Legitimate Pools:**
-    - Pools that generate positive DAO profit (revenue > bribes)
-    - Have good emissions ROI (revenue/bribes > 1.0)
-    - Generate meaningful revenue (>$10k) even without bribes
-    - Core pools with ROI > 0.7 are typically classified as legitimate
+    - Top pools: high DAO profit (>$5k), ROI > 1.5x, low incentive dependency (<50%), or core pools with ROI > 1.2x
+    - No incentives: revenue > $15k
+    
+    **Sustainable Pools:**
+    - Positive but not elite: DAO profit ≥ 0, aggregate ROI ≥ 1.0
+    - No incentives: revenue > 0 but ≤ $15k
     
     **Mercenary Pools:**
-    - Pools that generate negative DAO profit (revenue < bribes)
-    - Have poor emissions ROI (revenue/bribes < 0.5)
-    - Highly dependent on bribes (>80% of revenue comes from bribes)
-    - Generate little to no revenue without bribes
+    - Zero revenue, or ROI < 0.5, or negative DAO profit, or incentive dependency > 80%, or revenue < $5k
     
     **Undefined Pools:**
-    - Pools that don't clearly fit into either category
-    - May have no bribes but also low revenue
-    - Require further analysis to classify
+    - Don't clearly fit other categories (e.g. no incentives and no revenue)
     
-    **Core Pools:**
-    - Pools designated as "core" by the protocol
-    - Typically receive priority in emissions distribution
-    - May have different revenue distribution rules
-    
-    **Note:** This analysis focuses on bribes (voting incentives). Direct incentives are not considered in this classification.
+    **Core Pools:** Designated as "core" by the protocol; may receive priority in emissions.
     """)
 
 st.markdown("---")
 
-# Filter data based on mode
 if st.session_state.pool_filter_mode_class == 'top20':
-    # Get top 20 pools
     top_pools = utils.get_top_pools(df, n=20)
     top_pools_list = [str(p) for p in top_pools]
     df_display = df[df['pool_symbol'].isin(top_pools_list)].copy()
 elif st.session_state.pool_filter_mode_class == 'worst20':
-    # Get worst 20 pools
     worst_pools = utils.get_worst_pools(df, n=20)
     worst_pools_list = [str(p) for p in worst_pools]
     df_display = df[df['pool_symbol'].isin(worst_pools_list)].copy()
 else:
-    # 'all' mode - show everything
     df_display = df.copy()
 
 if 'pool_category' not in df_display.columns:
     st.error("Pool classification not found.")
     st.stop()
-
-category_stats = df_display.groupby('pool_category').agg({
+df_display = df_display.copy()
+df_display['pool_category'] = df_display['pool_category'].apply(_map_pool_cat)
+agg_dict = {
     'pool_symbol': 'nunique',
     'protocol_fee_amount_usd': 'sum',
     'direct_incentives': 'sum',
     'dao_profit_usd': 'sum',
-    'bal_emited_votes': 'sum'
-}).round(2)
+}
+if 'bal_emited_votes' in df_display.columns:
+    agg_dict['bal_emited_votes'] = 'sum'
 
-category_stats.columns = ['Pool Count', 'Total Revenue', 'Total Bribes', 'Total DAO Profit', 'Total BAL Emitted']
-
-total_bribes = category_stats['Total Bribes'].sum()
-total_bal = category_stats['Total BAL Emitted'].sum()
-
+category_stats = df_display.groupby('pool_category').agg(agg_dict).round(2)
+col_map = {
+    'pool_symbol': 'Pool Count',
+    'protocol_fee_amount_usd': 'Total Revenue',
+    'direct_incentives': 'Total Incentives',
+    'dao_profit_usd': 'Total DAO Profit',
+    'bal_emited_votes': 'Total BAL Emitted'
+}
+category_stats = category_stats.rename(columns=col_map)
+category_stats = category_stats.reindex(KNOWN_CATS, fill_value=0).fillna(0)
+if 'Total BAL Emitted' in category_stats.columns:
+    total_bal = category_stats['Total BAL Emitted'].sum()
+    if total_bal > 0:
+        category_stats['% of Total BAL'] = (category_stats['Total BAL Emitted'] / total_bal * 100).round(2)
+    else:
+        category_stats['% of Total BAL'] = 0.0
+total_bribes = category_stats['Total Incentives'].sum()
 if total_bribes > 0:
-    category_stats['% of Total Bribes'] = (category_stats['Total Bribes'] / total_bribes * 100).round(2)
-if total_bal > 0:
-    category_stats['% of Total BAL'] = (category_stats['Total BAL Emitted'] / total_bal * 100).round(2)
+    category_stats['% of Total Incentives'] = (category_stats['Total Incentives'] / total_bribes * 100).round(2)
+else:
+    category_stats['% of Total Incentives'] = 0.0
 
 st.markdown("### 📊 Classification Summary")
 
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    legit_count = category_stats.loc['Legitimate', 'Pool Count'] if 'Legitimate' in category_stats.index else 0
-    st.metric("Legitimate Pools", f"{legit_count:.0f}")
-
-with col2:
-    merc_count = category_stats.loc['Mercenary', 'Pool Count'] if 'Mercenary' in category_stats.index else 0
-    st.metric("Mercenary Pools", f"{merc_count:.0f}")
-
-with col3:
-    undef_count = category_stats.loc['Undefined', 'Pool Count'] if 'Undefined' in category_stats.index else 0
-    st.metric("Undefined Pools", f"{undef_count:.0f}")
+def _count(cat):
+    return category_stats.loc[cat, 'Pool Count'] if cat in category_stats.index else 0
+active_cats = [c for c in KNOWN_CATS if _count(c) > 0]
+if active_cats:
+    cols = st.columns(len(active_cats))
+    for i, cat in enumerate(active_cats):
+        with cols[i]:
+            st.metric(f"{cat} Pools", f"{_count(cat):.0f}")
+else:
+    st.info("No pool data in selected filters.")
 
 st.markdown("---")
 
-# Format monetary columns for display
-category_stats_display = category_stats.copy()
+category_stats_display = category_stats.loc[active_cats].copy() if active_cats else category_stats.copy()
 for col in ['Total Revenue', 'Total Bribes', 'Total DAO Profit']:
     if col in category_stats_display.columns:
         category_stats_display[col] = category_stats_display[col].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
-
-# Format percentage columns
 for col in ['% of Total Bribes', '% of Total BAL']:
     if col in category_stats_display.columns:
         category_stats_display[col] = category_stats_display[col].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "0.00%")
 
 st.dataframe(category_stats_display, use_container_width=True, hide_index=False)
 
+
 st.markdown("---")
 
 st.markdown("### 📈 Historical Distribution by Category")
-
-# Ensure block_date is datetime before using .dt accessor
 if 'block_date' in df_display.columns:
     if not pd.api.types.is_datetime64_any_dtype(df_display['block_date']):
         df_display['block_date'] = pd.to_datetime(df_display['block_date'], errors='coerce')
-    
-    # Filter out rows with invalid dates
     df_display_valid = df_display[df_display['block_date'].notna()].copy()
     
     if not df_display_valid.empty:
@@ -320,6 +317,13 @@ if not df_monthly.empty:
 
     pivot_incentives = df_monthly.pivot(index='block_date', columns='pool_category', values='direct_incentives').fillna(0)
     pivot_profit = df_monthly.pivot(index='block_date', columns='pool_category', values='dao_profit_usd').fillna(0)
+    chart_cats = [c for c in KNOWN_CATS if c in pivot_incentives.columns]
+    if chart_cats:
+        for c in chart_cats:
+            if c not in pivot_profit.columns:
+                pivot_profit[c] = 0
+        pivot_incentives = pivot_incentives[chart_cats]
+        pivot_profit = pivot_profit[chart_cats]
 
     pivot_incentives.index = pd.to_datetime(pivot_incentives.index)
     pivot_profit.index = pd.to_datetime(pivot_profit.index)
@@ -327,12 +331,11 @@ else:
     pivot_incentives = pd.DataFrame()
     pivot_profit = pd.DataFrame()
 
-colors = {'Legitimate': '#2ecc71', 'Mercenary': '#e74c3c', 'Undefined': '#95a5a6'}
+colors = {'Legitimate': '#2ecc71', 'Sustainable': '#3498db', 'Mercenary': '#e74c3c', 'Undefined': '#95a5a6'}
 
 if pivot_incentives.empty or pivot_profit.empty:
     st.info("No data available for historical distribution charts.")
 else:
-    # Toggle for percentage view
     if 'show_percentage_bribes' not in st.session_state:
         st.session_state.show_percentage_bribes = False
     
@@ -350,13 +353,9 @@ else:
         st.markdown(chart_title)
         
         fig1 = go.Figure()
-        
-        # Calculate percentages if toggle is on
         if st.session_state.show_percentage_bribes:
             row_sums = pivot_incentives.sum(axis=1)
-            # Avoid division by zero
             pivot_incentives_pct = pivot_incentives.div(row_sums.replace(0, 1), axis=0) * 100
-            # Set to 0 where row sum was 0
             pivot_incentives_pct.loc[row_sums == 0] = 0
             pivot_incentives_display = pivot_incentives_pct
             yaxis_title = "Percentage (%)"
@@ -365,7 +364,6 @@ else:
             yaxis_title = ""
         
         for category in pivot_incentives_display.columns:
-            # Format hover template based on view mode
             if st.session_state.show_percentage_bribes:
                 hovertemplate = f'<b>{category}</b><br>%{{x|%b %Y}}<br>%{{y:,.2f}}%<extra></extra>'
             else:
@@ -464,13 +462,9 @@ else:
         )
         
         st.plotly_chart(fig2, use_container_width=True, key="monthly_profit")
-
-# Show detailed pool analysis when filtering by Top 20 or Worst 20
 if st.session_state.pool_filter_mode_class in ['top20', 'worst20']:
     st.markdown("---")
     st.markdown("### 📋 Pools by Category")
-    
-    # Get list of pools from filtered data
     filtered_pools = sorted(df_display['pool_symbol'].unique().tolist())
     
     for idx, pool in enumerate(filtered_pools):
@@ -486,8 +480,6 @@ if st.session_state.pool_filter_mode_class in ['top20', 'worst20']:
                 col_p1.metric("Total Revenue", f"${total_rev:,.0f}")
                 col_p2.metric("Total Bribes", f"${total_inc:,.0f}")
                 col_p3.metric("DAO Profit", f"${total_profit:,.0f}")
-                
-                # Ensure block_date is datetime before grouping
                 pool_data_copy = pool_data.copy()
                 if 'block_date' in pool_data_copy.columns:
                     if not pd.api.types.is_datetime64_any_dtype(pool_data_copy['block_date']):

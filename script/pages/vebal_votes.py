@@ -6,14 +6,10 @@ import pandas as pd
 import numpy as np
 
 st.set_page_config(page_title="veBAL Votes", layout="wide", page_icon="🗳️")
-
-# Check authentication
 if not utils.check_authentication():
     st.stop()
 
 utils.inject_css()
-
-# Script para aplicar IDs específicos aos botões
 import streamlit.components.v1 as components
 
 components.html("""
@@ -52,8 +48,6 @@ function applyButtonIds() {
                 } catch(e) {}
                 
                 const textLower = text.toLowerCase();
-                
-                // Aplica IDs que começam com os prefixos corretos
                 if (text === 'V2' || textLower === 'v2') {
                     if (!button.id || !button.id.startsWith('btn_v2_')) {
                         button.id = 'btn_v2_version_filter';
@@ -93,13 +87,11 @@ function applyButtonIds() {
                 }
             });
             
-            // Style number inputs - only cursor pointer
             const numberInputs = doc.querySelectorAll('input[type="number"]');
             numberInputs.forEach((input) => {
                 input.style.cursor = 'pointer';
             });
             
-            // Style selectboxes (same as date filter)
             const selectboxes = doc.querySelectorAll('div[data-baseweb="select"]:not(:has(span[role="listbox"] > span)) > div:first-child');
             selectboxes.forEach((select) => {
                 if (!select.hasAttribute('data-styled')) {
@@ -115,8 +107,6 @@ function applyButtonIds() {
                     select.style.alignItems = 'center';
                     select.style.cursor = 'pointer';
                     select.style.animation = 'sidebarSaltinho 0.35s ease-out both';
-                    
-                    // Create shimmer effect
                     const shimmer = document.createElement('div');
                     shimmer.style.cssText = `
                         content: '';
@@ -131,8 +121,6 @@ function applyButtonIds() {
                         z-index: 1;
                     `;
                     select.appendChild(shimmer);
-                    
-                    // Create border glow
                     const borderGlow = document.createElement('div');
                     borderGlow.style.cssText = `
                         content: '';
@@ -150,8 +138,6 @@ function applyButtonIds() {
                         z-index: 0;
                     `;
                     select.appendChild(borderGlow);
-                    
-                    // Hover effects
                     select.addEventListener('mouseenter', function() {
                         this.style.background = 'linear-gradient(135deg, rgba(103, 162, 225, 0.28) 0%, rgba(103, 162, 225, 0.15) 100%)';
                         this.style.borderColor = 'rgba(103, 162, 225, 0.7)';
@@ -179,8 +165,6 @@ function applyButtonIds() {
                         this.style.transform = 'translateY(-3px) scale(1.02)';
                         this.style.boxShadow = '0 6px 20px rgba(103, 162, 225, 0.3)';
                     });
-                    
-                    // Center align text content (same as date filter)
                     const textContainer = select.querySelector('div:first-child');
                     if (textContainer) {
                         textContainer.style.flex = '1';
@@ -197,15 +181,11 @@ function applyButtonIds() {
         }
     });
 }
-
-// Executa imediatamente e após delays
 applyButtonIds();
 setTimeout(applyButtonIds, 100);
 setTimeout(applyButtonIds, 500);
 setTimeout(applyButtonIds, 1000);
 setInterval(applyButtonIds, 2000);
-
-// Observa mudanças no DOM
 if (window.MutationObserver) {
     const observer = new MutationObserver(() => {
         setTimeout(applyButtonIds, 100);
@@ -218,38 +198,30 @@ if (window.MutationObserver) {
 </script>
 """, height=0)
 
-# veBAL Votes: from Balancer-All-Tokenomics.csv (load_data) — votes by pool, Top/Worst 20 by protocol fees
 df_main = utils.load_data()
 if df_main.empty:
     st.error("❌ No data. Ensure `Balancer-All-Tokenomics.csv` is in `data/`.")
     st.stop()
 
-# Initialize session state - default to 'all' (show everything)
 if 'pool_filter_mode_votes' not in st.session_state:
-    st.session_state.pool_filter_mode_votes = 'all'  # Default: show all pools
+    st.session_state.pool_filter_mode_votes = 'all'  
 
 if 'version_filter_votes' not in st.session_state:
-    st.session_state.version_filter_votes = 'all'  # Default: show all versions
+    st.session_state.version_filter_votes = 'all'  
 
 if 'gauge_filter_votes' not in st.session_state:
-    st.session_state.gauge_filter_votes = 'all'  # Default: show all pools
+    st.session_state.gauge_filter_votes = 'all'  
 
-# Version filter at the top of sidebar
 utils.show_version_filter('version_filter_votes')
 
-# Gauge filter (with gauge / without gauge)
 utils.show_gauge_filter('gauge_filter_votes')
 
-# Pool filters at the top of sidebar (FIRST)
 utils.show_pool_filters('pool_filter_mode_votes')
 
-# Date filter: Year + Quarter (using dynamic filters)
 df_main = utils.show_date_filter_sidebar(df_main, key_prefix="date_filter_votes")
 
-# Apply version filter
 df_main = utils.apply_version_filter(df_main, 'version_filter_votes')
 
-# Apply gauge filter
 df_main = utils.apply_gauge_filter(df_main, 'gauge_filter_votes')
 
 if df_main.empty:
@@ -260,7 +232,6 @@ if df_votes.empty:
     st.error("❌ No votes data in Balancer-Tokenomics (missing votes_received or pool_symbol).")
     st.stop()
 
-# Filter votes: Top/Worst 20 by protocol fees (from same Balancer-Tokenomics data)
 df_display = df_votes.copy()
 has_pool_symbol = 'pool_symbol' in df_display.columns
 
@@ -293,7 +264,6 @@ else:
 
 total_gauges = len(df_display)
 
-# Page Header with logout button
 col_title, col_logout = st.columns([1, 0.1])
 with col_title:
     st.markdown('<div class="page-title">🗳️ veBAL Votes Analysis</div>', unsafe_allow_html=True)
@@ -303,7 +273,6 @@ with col_logout:
 
 st.markdown("---")
 
-# Main Metrics
 st.markdown("### 📊 Key Metrics")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -327,25 +296,21 @@ with col4:
 
 st.markdown("---")
 
-# Rankings and Visualizations
 st.markdown("### 🏆 Gauge Rankings")
 
 tab1, tab2, tab3 = st.tabs(["📊 Top Gauges", "🥧 Vote Share", "📋 Full Table"])
 
 with tab1:
     st.markdown("#### Top 20 Gauges by Votes")
-    
-    # Slider to select number of top gauges
     n_gauges = st.slider("Number of top gauges to display", 10, 50, 20, 5)
     top_n = df_display.nlargest(n_gauges, 'votes')
     
     col_chart1, col_chart2 = st.columns([2, 1])
     
     with col_chart1:
-        # Horizontal bar chart for better readability
         fig_bar = go.Figure()
         fig_bar.add_trace(go.Bar(
-            y=top_n['symbol_clean'].iloc[::-1],  # Reverse for top-to-bottom
+            y=top_n['symbol_clean'].iloc[::-1], 
             x=top_n['votes'].iloc[::-1],
             orientation='h',
             marker=dict(
@@ -411,7 +376,6 @@ with tab2:
     col_pie1, col_pie2 = st.columns(2)
     
     with col_pie1:
-        # Pie chart for top N
         top_n_pie = df_display.nlargest(n_top_pie, 'votes')
         others_votes = df_display['votes'].sum() - top_n_pie['votes'].sum()
         
@@ -455,7 +419,6 @@ with tab2:
         st.plotly_chart(fig_pie, use_container_width=True)
     
     with col_pie2:
-        # Treemap
         top_n_treemap = df_display.nlargest(15, 'votes')
         fig_treemap = px.treemap(
             top_n_treemap,
@@ -476,8 +439,6 @@ with tab2:
             title=dict(font=dict(color='white', size=16))
         )
         st.plotly_chart(fig_treemap, use_container_width=True)
-    
-    # Cumulative percentage
     st.markdown("#### Cumulative Vote Distribution")
     df_sorted = df_display.sort_values('votes', ascending=False).copy()
     df_sorted['cumulative_pct'] = (df_sorted['votes'].cumsum() / df_sorted['votes'].sum() * 100)
@@ -531,22 +492,17 @@ with tab3:
     col_filter1, col_filter2, col_filter3 = st.columns(3)
     
     with col_filter1:
-        # Search/filter
         search_term = st.text_input("🔍 Search pool id or gauge address", placeholder="Type pool id or gauge address...", key="search_gauge")
     
     with col_filter2:
-        # Filter by minimum votes
         min_votes = st.number_input("Minimum votes", min_value=0.0, value=0.0, step=1000.0, key="min_votes")
     
     with col_filter3:
-        # Filter by minimum share
         min_share = st.number_input("Minimum share (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1, key="min_share")
     
     display_df = df_display.copy()
     
-    # Apply filters
     if search_term:
-        # Search by project_contract_address OR gauge_address
         mask_project = display_df['project_contract_address'].str.contains(search_term, case=False, na=False) if 'project_contract_address' in display_df.columns else False
         mask_gauge = display_df['gauge_address'].str.contains(search_term, case=False, na=False) if 'gauge_address' in display_df.columns else False
         display_df = display_df[mask_project | mask_gauge]
@@ -556,8 +512,6 @@ with tab3:
     
     if min_share > 0:
         display_df = display_df[display_df['pct_votes'] * 100 >= min_share]
-    
-    # Sort options
     col_sort1, col_sort2 = st.columns(2)
     with col_sort1:
         sort_by = st.selectbox("Sort by", ['votes', 'ranking', 'pct_votes'], index=0, key="sort_by")
@@ -565,14 +519,10 @@ with tab3:
         sort_order = st.radio("Order", ["Descending", "Ascending"], horizontal=True, index=0, key="sort_order")
     
     display_df = display_df.sort_values(sort_by, ascending=(sort_order == "Ascending"))
-    
-    # Format display with better styling
     display_table = display_df[['ranking', 'symbol_clean', 'votes', 'pct_votes']].copy()
     display_table['votes'] = display_table['votes'].apply(lambda x: f"{x:,.0f}")
     display_table['pct_votes'] = display_table['pct_votes'].apply(lambda x: f"{x*100:.2f}%")
     display_table.columns = ['Rank', 'Pool', 'Votes', 'Share %']
-    
-    # Add rank highlighting
     st.dataframe(
         display_table,
         use_container_width=True,
@@ -580,8 +530,6 @@ with tab3:
         height=600
     )
     st.caption(f"Showing {len(display_table)} of {len(df_display)} gauges")
-    
-    # Download button
     csv = display_df.to_csv(index=False)
     st.download_button(
         label="📥 Download filtered data as CSV",
@@ -592,7 +540,6 @@ with tab3:
 
 st.markdown("---")
 
-# Insights
 st.markdown("### 💡 Insights & Analysis")
 
 col_insight1, col_insight2 = st.columns(2)
@@ -606,8 +553,6 @@ with col_insight1:
     st.metric("Top 5 Gauges Share", f"{top_5_pct:.1f}%")
     st.metric("Top 10 Gauges Share", f"{top_10_pct:.1f}%")
     st.metric("Top 20 Gauges Share", f"{top_20_pct:.1f}%")
-    
-    # Gini coefficient approximation
     df_sorted_votes = df_display.sort_values('votes', ascending=True)
     n = len(df_sorted_votes)
     cumsum = df_sorted_votes['votes'].cumsum()
@@ -624,8 +569,6 @@ with col_insight1:
 
 with col_insight2:
     st.markdown("#### 🎯 Power Distribution")
-    
-    # Calculate how many gauges control X% of votes
     df_sorted_power = df_display.sort_values('votes', ascending=False)
     cumsum_power = df_sorted_power['votes'].cumsum()
     
@@ -639,8 +582,6 @@ with col_insight2:
             f"{n_gauges}",
             help=f"Number of top gauges needed to control {target_pct}% of votes"
         )
-    
-    # Herfindahl-Hirschman Index (HHI)
     hhi = sum((df_display['pct_votes'] * 100) ** 2)
     st.metric("HHI Index", f"{hhi:.0f}", help="Higher HHI = more concentration (0-10000 scale)")
     

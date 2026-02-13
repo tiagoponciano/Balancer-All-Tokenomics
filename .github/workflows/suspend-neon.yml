@@ -1,0 +1,31 @@
+name: Suspend NEON Compute
+
+on:
+  schedule:
+    # 9:30 AM UTC = 6:30 AM Brazil time (BRT = UTC-3), 1st of month
+    - cron: "30 9 1 * *"
+  workflow_dispatch:
+
+jobs:
+  suspend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Suspend NEON Compute
+        run: |
+          RESP=$(curl -s -w "\n%{http_code}" --request POST \
+            --url "https://console.neon.tech/api/v2/projects/${{ secrets.NEON_PROJECT_ID }}/endpoints/${{ secrets.NEON_ENDPOINT_ID }}/suspend" \
+            --header 'accept: application/json' \
+            --header "authorization: Bearer ${{ secrets.NEON_API_KEY }}")
+          HTTP_CODE=$(echo "$RESP" | tail -n1)
+          BODY=$(echo "$RESP" | sed '$d')
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✓ NEON compute suspended successfully (HTTP $HTTP_CODE)"
+          else
+            echo "✗ Suspend failed (HTTP $HTTP_CODE)"
+            exit 1
+          fi

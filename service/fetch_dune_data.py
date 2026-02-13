@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Legacy script to fetch data from Dune and generate CSV
 (Use main.py for multiple queries)

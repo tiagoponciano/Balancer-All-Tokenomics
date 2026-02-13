@@ -35,29 +35,24 @@ def create_final_dataset():
     print("🎯 Creating Final Dataset - Robust Merge")
     print("=" * 60)
     
-    # 1. Load files
     print("\n📖 Reading files...")
     vebal_df = pd.read_csv(VEBAL_FILE)
     vb_df = pd.read_csv(VOTES_BRIBES_FILE)
     core_df = pd.read_csv(CORE_POOLS_CLASSIFICATION_FILE)
     hiddenhand_df = pd.read_csv(HIDDENHAND_BRIBES_FILE)
     
-    # 2. Standardize veBAL
     print("🧹 Standardizing veBAL...")
     vebal_df['gauge_key'] = vebal_df['gauge_address'].fillna('').astype(str).str.lower().str.strip()
     vebal_df['pool_key'] = vebal_df['project_contract_address'].astype(str).str.lower().str.strip().str[:42]
     vebal_df['date_key'] = pd.to_datetime(vebal_df['block_date']).dt.tz_localize(None)
     vebal_df['chain_key'] = vebal_df['blockchain'].astype(str).str.lower().str.strip()
     
-    # Remove existing columns to avoid conflicts
     for col in ['bal_emited_votes', 'votes_received', 'bribe_amount_usd', 'core_non_core']:
         if col in vebal_df.columns:
             vebal_df = vebal_df.drop(columns=[col])
 
-    # 3. Standardize Votes/Bribes
     print("🧹 Standardizing Votes/Bribes...")
     vb_df['gauge_key'] = vb_df['gauge_address'].fillna('').astype(str).str.lower().str.strip()
-    # Ensure pool_42 exists (older merges may not include it)
     if 'pool_42' not in vb_df.columns:
         def _pool_42_from_row(row):
             for col in ['pool_id', 'derived_pool_address', 'pool_address']:
@@ -70,9 +65,7 @@ def create_final_dataset():
     vb_df['date_key'] = pd.to_datetime(vb_df['day']).dt.tz_localize(None)
     vb_df['chain_key'] = vb_df['blockchain'].astype(str).str.lower().str.strip()
 
-    # 4. Stage 1: Merge by Gauge
     print("\n🔗 Stage 1: Matching by Gauge...")
-    # Aggregate bribes by gauge to avoid duplication
     vb_gauge = vb_df.groupby(['gauge_key', 'date_key', 'chain_key']).agg({
         'bribe_amount_usd': 'sum',
         'bal_emited_votes': 'sum',
@@ -89,13 +82,10 @@ def create_final_dataset():
     
     print(f"   ✅ Bribes matched by gauge: ${merged_df['bribe_amount_usd'].sum():,.2f}")
 
-    # 5. Stage 2: Merge by Pool (Fallback)
     print("🔗 Stage 2: Matching by Pool (Fallback)...")
     still_unmatched_mask = merged_df['bribe_amount_usd'].isna() | (merged_df['bribe_amount_usd'] == 0)
     
     if still_unmatched_mask.any():
-        # Get bribes that haven't been matched yet
-        # (Technically we can just use all pool-based bribes and fill where empty)
         vb_pool = vb_df[vb_df['bribe_amount_usd'] > 0].groupby(['pool_key', 'date_key', 'chain_key']).agg({
             'bribe_amount_usd': 'sum',
             'bal_emited_votes': 'sum',
@@ -103,7 +93,6 @@ def create_final_dataset():
             'votes_received': 'sum'
         }).reset_index()
         
-        # Merge unmatched rows with pool-based bribes
         pool_matches = pd.merge(
             merged_df[still_unmatched_mask][['pool_key', 'date_key', 'chain_key']].reset_index(),
             vb_pool,
@@ -119,7 +108,6 @@ def create_final_dataset():
             merged_df.loc[match_data.index, 'votes_received'] = match_data['votes_received']
             print(f"   ✅ Additional bribes matched by pool: ${pool_matches['bribe_amount_usd'].sum():,.2f}")
 
-    # 6. Add Core Pools Classification
     print("🛡️ Adding Core Pools classification...")
     core_df['pool_key'] = core_df['address'].astype(str).str.lower().str.strip().str[:42]
     core_df['date_key'] = pd.to_datetime(core_df['day']).dt.tz_localize(None)
@@ -132,22 +120,17 @@ def create_final_dataset():
     )
     merged_df['core_non_core'] = merged_df['is_core'].fillna(False)
 
-    # 6.5 Fill missing pool_symbol using HiddenHand pool_name
     print("🧩 Filling missing pool_symbol from HiddenHand...")
     hiddenhand_df['pool_key'] = hiddenhand_df['pool_id'].astype(str).str.lower().str.strip().str[:42]
     hiddenhand_map = hiddenhand_df.groupby('pool_key')['pool_name'].first().to_dict()
     missing_pool_symbol = merged_df['pool_symbol'].isna() | (merged_df['pool_symbol'].astype(str).str.strip() == '')
     merged_df.loc[missing_pool_symbol, 'pool_symbol'] = merged_df.loc[missing_pool_symbol, 'pool_key'].map(hiddenhand_map)
 
-    # 7. Final Cleanup
     print("🧹 Finalizing columns...")
-    # Rename swap_fee_% to swap_fee_percent for consistency
     if 'swap_fee_%' in merged_df.columns and 'swap_fee_percent' not in merged_df.columns:
         merged_df = merged_df.rename(columns={'swap_fee_%': 'swap_fee_percent'})
     merged_df['has_gauge'] = (merged_df['gauge_address'].notna()) & (merged_df['gauge_address'].astype(str) != 'nan') & (merged_df['gauge_address'] != '')
 
-    # Debug: identify bribes that never make it into the final dataset
-    # (no veBAL row for that gauge/date/chain and no pool/date/chain fallback)
     vebal_gauge_keys = set(zip(vebal_df['gauge_key'], vebal_df['date_key'], vebal_df['chain_key']))
     vebal_pool_keys = set(zip(vebal_df['pool_key'], vebal_df['date_key'], vebal_df['chain_key']))
 
@@ -169,7 +152,6 @@ def create_final_dataset():
         print(f"🧾 Debug file written: {DEBUG_UNMATCHED_FINAL}")
         print(f"   Unmatched bribes in final: {len(vb_unmatched_final):,}")
     
-    # Ensure all final columns exist
     for col in FINAL_COLUMNS:
         if col not in merged_df.columns:
             merged_df[col] = None
@@ -179,7 +161,6 @@ def create_final_dataset():
 
     print(f"\n📊 TOTAL BRIBES MATCHED: ${final_df['bribe_amount_usd'].sum():,.2f}")
     
-    # 8. Save
     final_df.to_csv(OUTPUT_FILE_ALL, index=False)
     organized_df = final_df[
         (final_df['bribe_amount_usd'] > 0) | 
@@ -192,7 +173,9 @@ def create_final_dataset():
     
     return final_df
 
-if __name__ == "__main__":
+
+def main():
+    """Main function to be called from main.py"""
     try:
         create_final_dataset()
         print("\n🚀 Process completed successfully!")
@@ -200,3 +183,8 @@ if __name__ == "__main__":
         print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
+        raise
+
+
+if __name__ == "__main__":
+    main()

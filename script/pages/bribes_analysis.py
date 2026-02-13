@@ -11,7 +11,6 @@ import os
 
 st.set_page_config(page_title="Bribes Analysis", layout="wide", page_icon="💰")
 
-# Check authentication
 if not utils.check_authentication():
     st.stop()
 
@@ -20,21 +19,18 @@ utils.inject_css()
 import streamlit.components.v1 as components
 
 try:
-    # Bribes page uses main data (Balancer-All-Tokenomics.csv). "Bribes" = direct_incentives (USD); votes = votes_received.
     df = utils.load_data()
     if df.empty:
         st.warning("⚠️ No data. Ensure `Balancer-All-Tokenomics.csv` is in `data/`.")
         st.stop()
 
     df_bribes = df.copy()
-    # Fill missing pool_symbol so bribes from unknown pools are not dropped in groupby
     df_bribes["pool_symbol"] = (
         df_bribes["pool_symbol"]
         .fillna(df_bribes["project_contract_address"])
         .replace("", pd.NA)
     )
 
-    # Séries auxiliares (nem sempre existem)
     pool_name_series = df_bribes.get("pool_name")
     if pool_name_series is None:
         pool_name_series = df_bribes["pool_symbol"]
@@ -43,8 +39,6 @@ try:
     if pool_title_series is None:
         pool_title_series = df_bribes["pool_symbol"]
 
-    # 👉 Regra principal:
-    # se pool_symbol estiver vazio, usar pool_name, depois pool_title, depois contract
     df_bribes["pool_symbol"] = (
         df_bribes["pool_symbol"]
         .fillna(pool_name_series)
@@ -52,16 +46,13 @@ try:
         .fillna(df_bribes["project_contract_address"])
     )
 
-    # If pool_symbol is a URL, prefer pool_name (or pool_title) for display
     is_url = df_bribes["pool_symbol"].astype(str).str.startswith(("http://", "https://")) | \
             df_bribes["pool_symbol"].astype(str).str.contains("balancer.fi/pools", na=False)
 
-    # Se for URL, usar nome amigável
     df_bribes["pool_symbol"] = df_bribes["pool_symbol"].mask(
         is_url,
         pool_name_series.fillna(pool_title_series).fillna(df_bribes["project_contract_address"])
     )
-    # Sanitize any residual URL-like values in pool name/title to avoid links in UI
     def _strip_url(val, fallback):
         s = str(val)
         if s.startswith(("http://", "https://")) or "balancer.fi/pools" in s:
@@ -81,7 +72,6 @@ try:
             lambda r: _strip_url(r.get("pool_name"), r.get("pool_symbol")),
             axis=1
         )
-    # Helper: ensure we always have a human-readable label (never a URL)
     def _safe_pool_label(row):
         for key in ["pool_name", "pool_title", "pool_symbol"]:
             val = row.get(key)
@@ -120,13 +110,12 @@ except Exception as e:
     st.code(traceback.format_exc())
     st.stop()
 
-# Initialize session state
 if 'pool_filter_mode_bribes' not in st.session_state:
-    st.session_state.pool_filter_mode_bribes = 'all'  # Default: show all pools
+    st.session_state.pool_filter_mode_bribes = 'all' 
 if 'version_filter_bribes' not in st.session_state:
-    st.session_state.version_filter_bribes = 'all'  # Default: show all versions
+    st.session_state.version_filter_bribes = 'all' 
 if 'gauge_filter_bribes' not in st.session_state:
-    st.session_state.gauge_filter_bribes = 'all'  # Default: show all pools
+    st.session_state.gauge_filter_bribes = 'all'  
 if 'show_performance_by_pool' not in st.session_state:
     st.session_state.show_performance_by_pool = False
 if 'performance_page' not in st.session_state:
@@ -172,7 +161,6 @@ function applyButtonIds() {
                 
                 const textLower = text.toLowerCase();
                 
-                // Apply IDs with correct prefixes
                 if (text === 'V2' || textLower === 'v2') {
                     if (!button.id || !button.id.startsWith('btn_v2_')) {
                         button.id = 'btn_v2_version_filter';
@@ -214,8 +202,6 @@ function applyButtonIds() {
                         button.id = 'btn_performance_by_pool';
                         button.classList.add('performance-button-fallback');
                         button.setAttribute('data-button-type', 'performance');
-                        
-                        // Apply all inline styles directly (maximum priority)
                         const styles = {
                             'width': '250px',
                             'min-width': '250px',
@@ -245,12 +231,9 @@ function applyButtonIds() {
             
             totalButtons += buttons.length;
         } catch(e) {
-            // Silent error handling
         }
     });
 }
-
-// Execute immediately and after delays
 applyButtonIds();
 setTimeout(applyButtonIds, 100);
 setTimeout(applyButtonIds, 500);
@@ -258,7 +241,6 @@ setTimeout(applyButtonIds, 1000);
 setTimeout(applyButtonIds, 2000);
 setInterval(applyButtonIds, 3000);
 
-// Observe DOM changes
 if (window.MutationObserver) {
     const observer = new MutationObserver(() => {
         setTimeout(applyButtonIds, 100);
@@ -278,38 +260,30 @@ if (window.MutationObserver) {
 """, height=0)
 
 
-# Determine filter pools based on mode - using only bribes data
 if st.session_state.pool_filter_mode_bribes == 'top20':
     filter_label = "Top 20 Pools"
 elif st.session_state.pool_filter_mode_bribes == 'worst20':
     filter_label = "Worst 20 Pools"
-else:  # 'all' - default mode, show everything
+else: 
     filter_label = "All Pools"
 
-# Bribes page uses merged only. Pool = pool_symbol; bribe = direct_incentives; votes = votes_received.
 pool_match_col = "pool_symbol"
 pool_col = "pool_symbol"
 
-# Pool filters at the top of sidebar
 def reset_performance_view():
     """Reset performance view when filter changes"""
     st.session_state.show_performance_by_pool = False
     st.session_state.performance_page = 1
 
-# Version filter at the top of sidebar
 utils.show_version_filter('version_filter_bribes', on_change_callback=reset_performance_view)
 
-# Gauge filter (Gauge / No Gauge)
 utils.show_gauge_filter('gauge_filter_bribes', on_change_callback=reset_performance_view)
 
 utils.show_pool_filters('pool_filter_mode_bribes', on_change_callback=reset_performance_view)
 
-# Date filter: Year + Quarter (using dynamic filters)
-# Note: For bribes page, we need to filter both df and df_bribes
 df_combined_for_filter = df.copy()
 df_combined_for_filter = utils.show_date_filter_sidebar(df_combined_for_filter, key_prefix="date_filter_bribes")
 
-# Extract the date range from filtered df and apply to both dataframes
 if not df_combined_for_filter.empty and 'block_date' in df_combined_for_filter.columns:
     min_date = df_combined_for_filter['block_date'].min()
     max_date = df_combined_for_filter['block_date'].max()
@@ -318,36 +292,29 @@ if not df_combined_for_filter.empty and 'block_date' in df_combined_for_filter.c
 else:
     df = df_combined_for_filter
 
-# Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_bribes')
 df_bribes = utils.apply_version_filter(df_bribes, 'version_filter_bribes')
 
-# Apply gauge filter
 df = utils.apply_gauge_filter(df, 'gauge_filter_bribes')
 df_bribes = utils.apply_gauge_filter(df_bribes, 'gauge_filter_bribes')
 
 if df.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")
 
-# Build display dataframe from date-filtered df_bribes (and date-filtered df for top/worst)
 if st.session_state.pool_filter_mode_bribes == "top20":
     top_pools = utils.get_top_pools(df, n=20)
     mask = df_bribes["pool_symbol"].astype(str).str.strip().isin([str(p).strip() for p in top_pools])
     df_bribes_display = df_bribes[mask].copy() if mask.any() else df_bribes.copy()
     n = df_bribes_display["pool_symbol"].nunique()
-    # Removed info message - filter is already shown in sidebar
 elif st.session_state.pool_filter_mode_bribes == "worst20":
     worst_pools = utils.get_worst_pools(df, n=20)
     mask = df_bribes["pool_symbol"].astype(str).str.strip().isin([str(p).strip() for p in worst_pools])
     df_bribes_display = df_bribes[mask].copy() if mask.any() else df_bribes.copy()
     n = df_bribes_display["pool_symbol"].nunique()
-    # Removed info message - filter is already shown in sidebar
 else:
     df_bribes_display = df_bribes.copy()
     n = df_bribes_display["pool_symbol"].nunique()
-    # Removed info message - filter is already shown in sidebar
 
-# Page Header with logout button
 col_title, col_logout = st.columns([1, 0.1])
 with col_title:
     st.markdown('<div class="page-title">💰 Bribes Analysis</div>', unsafe_allow_html=True)
@@ -356,7 +323,6 @@ with col_logout:
 
 st.markdown("---")
 
-# Verify pool_col was found
 if pool_col is None:
     st.error("❌ Could not identify pool column in bribes data.")
     st.info(f"Available columns: {', '.join(df_bribes.columns.tolist())}")
@@ -365,24 +331,18 @@ if pool_col is None:
 
 
 try:
-    # Identify bribe-related columns - always use df_bribes (original) for column identification
-    # df_bribes_display is used for filtering/display, but column names come from original
     df_to_check = df_bribes
     
     bribe_col = None
     votes_col = None
     bal_col = None
 
-    # Try to find bribe amount column (case-insensitive search)
-    # Priority: bribe_amount_usd first (as specified by user)
     df_cols_lower = {col.lower(): col for col in df_to_check.columns}
     for col_lower in ['bribe_amount_usd', 'direct_incentives', 'amount_usdc', 'total_bribes_usd', 'bribe_amount', 'bribes_usd', 'amount_usd', 'bribe', 'bribes', 'amount']:
         if col_lower in df_cols_lower:
             bribe_col = df_cols_lower[col_lower]
             break
 
-    # Try to find votes column (may not exist in this dataset)
-    # First check if we have veBAL votes from merge
     if 'vebal_votes' in df_to_check.columns:
         votes_col = 'vebal_votes'
     elif 'votes_received' in df_to_check.columns:
@@ -393,11 +353,9 @@ try:
                 votes_col = df_cols_lower[col_lower]
                 break
 
-    # BAL column not available in bribes dataset
-    # This data would come from the main financial dataset, but we're using only bribes data here
+
     bal_col = None
     
-    # Also check for total_bribes_periodo which might be useful
     total_bribes_col = None
     if 'total_bribes_periodo' in df_to_check.columns:
         total_bribes_col = 'total_bribes_periodo'
@@ -413,37 +371,30 @@ except Exception as e:
     st.stop()
 
 try:
-    # Verify df_bribes_display has data
     if df_bribes_display.empty:
         st.warning("⚠️ No bribes data available for the selected filter.")
         pool_bribes = pd.DataFrame()
     else:
-        # Aggregate bribes data by pool
         agg_dict = {bribe_col: 'sum'}
-        # Votes should be 'max' not 'sum' because each gauge has unique vote count
-        # If we sum, we're counting votes multiple times for the same gauge
+
         if votes_col:
-            # Only sum if it's not veBAL votes (which are unique per gauge)
             if votes_col == 'vebal_votes':
-                agg_dict[votes_col] = 'max'  # Unique per gauge, use max
+                agg_dict[votes_col] = 'max'  
             else:
-                agg_dict[votes_col] = 'sum'  # Other vote types might be cumulative
+                agg_dict[votes_col] = 'sum'  
         if bal_col:
             agg_dict[bal_col] = 'sum'
-        # Include total_bribes_periodo if available
         if 'total_bribes_periodo' in df_bribes_display.columns:
-            agg_dict['total_bribes_periodo'] = 'max'  # Use max since it's per period
-        # Include veBAL votes if available
+            agg_dict['total_bribes_periodo'] = 'max'  
         if 'vebal_votes' in df_bribes_display.columns:
             agg_dict['vebal_votes'] = 'sum'
         if 'vebal_pct_votes' in df_bribes_display.columns:
-            agg_dict['vebal_pct_votes'] = 'mean'  # Average percentage
+            agg_dict['vebal_pct_votes'] = 'mean' 
         if 'vebal_ranking' in df_bribes_display.columns:
             agg_dict['vebal_ranking'] = 'min'
         for c in ['pool_title', 'pool_name']:
             if c in df_bribes_display.columns:
                 agg_dict[c] = 'first'
-        # Preserve gauge_address and pool_type for display
         if 'gauge_address' in df_bribes_display.columns:
             agg_dict['gauge_address'] = 'first'
         if 'project_contract_address' in df_bribes_display.columns:
@@ -451,14 +402,12 @@ try:
         if 'pool_type' in df_bribes_display.columns:
             agg_dict['pool_type'] = 'first'
 
-        # Calculate metrics - aggregate by pool
         if pool_col and pool_col in df_bribes_display.columns:
             pool_bribes = df_bribes_display.groupby(pool_col).agg(agg_dict).reset_index()
         else:
-            # Fallback: use pool_match_col if pool_col not available
             if pool_match_col and pool_match_col in df_bribes_display.columns:
                 pool_bribes = df_bribes_display.groupby(pool_match_col).agg(agg_dict).reset_index()
-                pool_col = pool_match_col  # Update pool_col for later use
+                pool_col = pool_match_col  
             else:
                 st.error("❌ Could not find pool column for aggregation.")
                 st.info(f"Available columns: {', '.join(df_bribes_display.columns.tolist())}")
@@ -468,7 +417,6 @@ except Exception as e:
     st.code(traceback.format_exc())
     st.stop()
 
-# Calculate derived metrics
 if not pool_bribes.empty:
     if votes_col and votes_col in pool_bribes.columns:
         pool_bribes['bribe_per_vote'] = np.where(
@@ -478,21 +426,16 @@ if not pool_bribes.empty:
         )
 
 else:
-    # Create empty columns for consistency when DataFrame is empty
     if pool_bribes.empty:
-        # Create empty DataFrame with proper structure and numeric columns
         empty_cols = [pool_col, bribe_col]
         if votes_col:
             empty_cols.append('bribe_per_vote')
         pool_bribes = pd.DataFrame(columns=empty_cols)
-        # Ensure numeric columns have proper dtype
         for col in ['bribe_per_vote']:
             if col in pool_bribes.columns:
                 pool_bribes[col] = pool_bribes[col].astype(float)
 
-# No merge with main data - using only bribes and veBAL votes data
 
-# Main Metrics
 st.markdown("### 📊 Key Metrics")
 
 col1, col2, col3 = st.columns(3)
@@ -524,13 +467,10 @@ with col3:
 
 st.markdown("---")
 
-# Rankings
 st.markdown("### 🏆 Pool Rankings")
 
-# Build ranking source from pool_bribes (merged data)
 all_pools_for_ranking = None
 if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in pool_bribes.columns:
-    # Get additional columns: blockchain, gauge_address, version
     cols_to_include = [pool_col, "pool_title", "pool_name", "pool_type", bribe_col]
     if "blockchain" in pool_bribes.columns:
         cols_to_include.append("blockchain")
@@ -541,7 +481,6 @@ if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in po
     
     rr = pool_bribes[cols_to_include].copy()
     rr = rr.rename(columns={pool_col: "pool", bribe_col: "bribe_amount"})
-    # Sanitize any URL-like pool labels before display
     def _sanitize_pool_label(val, fallback):
         s = str(val)
         if s.startswith(("http://", "https://")) or "balancer.fi/pools" in s:
@@ -555,9 +494,7 @@ if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in po
     rr["pool_title"] = rr.get("pool_title", rr["pool"]).fillna(rr["pool"])
     rr["pool_name"] = rr.get("pool_name", rr["pool"]).fillna(rr["pool"])
     
-    # Add version and address columns if not present
     if "blockchain" not in rr.columns:
-        # Try to get from df_bribes_display
         if not df_bribes_display.empty and "blockchain" in df_bribes_display.columns and "pool_symbol" in df_bribes_display.columns:
             blockchain_map = df_bribes_display.groupby("pool_symbol")["blockchain"].first().to_dict()
             rr["blockchain"] = rr["pool"].map(blockchain_map).fillna("Unknown")
@@ -565,7 +502,6 @@ if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in po
             rr["blockchain"] = "Unknown"
     
     if "gauge_address" not in rr.columns and "project_contract_address" not in rr.columns:
-        # Try to get from df_bribes_display
         if not df_bribes_display.empty and "pool_symbol" in df_bribes_display.columns:
             addr_col_source = "gauge_address" if "gauge_address" in df_bribes_display.columns else "project_contract_address"
             if addr_col_source in df_bribes_display.columns:
@@ -578,7 +514,6 @@ if not pool_bribes.empty and pool_col in pool_bribes.columns and bribe_col in po
     elif "project_contract_address" in rr.columns and "gauge_address" not in rr.columns:
         rr["gauge_address"] = rr["project_contract_address"]
     
-    # Add version column
     if not df_bribes_display.empty and "version" in df_bribes_display.columns and "pool_symbol" in df_bribes_display.columns:
         version_map = df_bribes_display.groupby("pool_symbol")["version"].first().to_dict()
         rr["version"] = rr["pool"].map(version_map).fillna(0).astype(int)
@@ -592,24 +527,19 @@ tab1, tab2 = st.tabs(["💰 Top Bribes", "🗳️ veBAL Votes"])
 
 with tab1:
     if all_pools_for_ranking is not None and not all_pools_for_ranking.empty:
-        # Show all pools from CSV, even if they don't have data in pool_bribes
         ranking_df = all_pools_for_ranking.copy()
-        
-        # Use amount_usdc from CSV as base, merge with pool_bribes if available for updated values
+    
         if not pool_bribes.empty and bribe_col in pool_bribes.columns and pool_col in pool_bribes.columns:
-            # Create a mapping from pool_bribes
             pool_bribes_dict = {}
             for idx, row in pool_bribes.iterrows():
                 pool_key = str(row[pool_col]).upper().strip()
                 pool_bribes_dict[pool_key] = row[bribe_col]
             
-            # Try to match and update bribe amounts
             def get_bribe_amount(row):
                 pool_val = str(row['pool']).upper().strip()
                 title_val = str(row.get('pool_title', '')).upper().strip()
                 name_val = str(row.get('pool_name', '')).upper().strip()
-                
-                # Try multiple matching strategies
+            
                 if pool_val in pool_bribes_dict:
                     return pool_bribes_dict[pool_val]
                 elif title_val in pool_bribes_dict:
@@ -623,10 +553,7 @@ with tab1:
         else:
             ranking_df['Total Bribes (USD)'] = ranking_df.get('bribe_amount', 0)
         
-        # Sort by bribe amount descending
         ranking_df = ranking_df.sort_values('Total Bribes (USD)', ascending=False)
-        
-        # Generate links for Balancer UI (pool link)
         if 'blockchain' in ranking_df.columns:
             ranking_df['balancer_url'] = ranking_df.apply(
                 lambda row: utils.get_balancer_ui_url(
@@ -653,8 +580,6 @@ with tab1:
 
         if 'blockchain' in display_df.columns:
             display_df['chain_display'] = display_df['blockchain']
-
-        # Address link (gauge_address) with short label - always Etherscan
         def _short_addr(val):
             s = str(val)
             if s.startswith("0x") and len(s) > 10:
@@ -720,7 +645,6 @@ with tab1:
             column_config=column_config
         )
     elif bribe_col in pool_bribes.columns and not pool_bribes.empty:
-        # Fallback: show from pool_bribes
         bribes_with_data = pool_bribes[pool_bribes[bribe_col] > 0]
         if not bribes_with_data.empty:
             top_bribes = bribes_with_data.nlargest(20, bribe_col)[[pool_col, bribe_col]].copy()
@@ -734,12 +658,10 @@ with tab1:
 
 with tab2:
     if all_pools_for_ranking is not None and not all_pools_for_ranking.empty:
-        # Show all pools from pool_bribes, merge with veBAL votes from df_bribes_display (Balancer-Tokenomics)
         base_cols = ['pool', 'pool_title', 'pool_name']
         extra_cols = [c for c in ['blockchain', 'project_contract_address', 'gauge_address', 'version', 'pool_type'] if c in all_pools_for_ranking.columns]
         ranking_df = all_pools_for_ranking[base_cols + extra_cols].copy()
-        
-        # veBAL votes = votes_received in main data. Sum per pool in filtered period, then pct and rank
+
         vebal_votes_dict = {}
         vebal_pct_dict = {}
         vebal_rank_dict = {}
@@ -747,7 +669,6 @@ with tab2:
         if not df_bribes_display.empty and 'pool_symbol' in df_bribes_display.columns and vebal_col in df_bribes_display.columns:
             pool_vebal = df_bribes_display.groupby('pool_symbol')[vebal_col].sum()
             total_vebal = pool_vebal.sum()
-            # Rank by total votes descending (1 = highest)
             pool_rank = pool_vebal.rank(method='min', ascending=False).astype(int)
             for pool_sym in pool_vebal.index:
                 key = str(pool_sym).upper().strip()
@@ -756,7 +677,6 @@ with tab2:
                     vebal_pct_dict[key] = (vebal_votes_dict[key] / total_vebal) if total_vebal and total_vebal > 0 else 0
                     vebal_rank_dict[key] = int(pool_rank.loc[pool_sym]) if pool_sym in pool_rank.index else None
         
-        # Match veBAL data: pool column is pool_symbol from pool_bribes
         def get_vebal_votes(row):
             pool_val = str(row['pool']).upper().strip()
             title_val = str(row.get('pool_title', '')).upper().strip()
@@ -797,7 +717,7 @@ with tab2:
         ranking_df['Vote Share %'] = ranking_df.apply(get_vebal_pct, axis=1)
         ranking_df['Ranking'] = ranking_df.apply(get_vebal_rank, axis=1)
         
-        # Sort by veBAL votes descending
+
         ranking_df = ranking_df.sort_values('veBAL Votes', ascending=False)
         
         if 'blockchain' in ranking_df.columns:
@@ -823,7 +743,7 @@ with tab2:
         if 'blockchain' in display_df.columns:
             display_df['chain_display'] = display_df['blockchain']
 
-        # Address link (gauge_address) with short label - always Etherscan
+
         def _short_addr(val):
             s = str(val)
             if s.startswith("0x") and len(s) > 10:
@@ -896,9 +816,7 @@ with tab2:
             column_config=column_config
         )
         
-        # Removed Top Pools by veBAL Votes chart per request
     elif 'vebal_votes' in pool_bribes.columns:
-        # Fallback: show from pool_bribes
         vebal_data = pool_bribes[pool_bribes['vebal_votes'].notna() & (pool_bribes['vebal_votes'] > 0)].copy()
         if not vebal_data.empty:
             top_vebal = vebal_data.nlargest(20, 'vebal_votes')[[pool_col, 'vebal_votes', 'vebal_pct_votes', 'vebal_ranking']].copy()
@@ -908,7 +826,6 @@ with tab2:
             top_vebal['Ranking'] = top_vebal['Ranking'].apply(lambda x: f"#{int(x)}" if pd.notna(x) else "N/A")
             st.dataframe(top_vebal, use_container_width=True, hide_index=True)
             
-            # Removed Top Pools by veBAL Votes chart per request
         else:
             st.info("No veBAL votes data available for the selected pools")
     else:
@@ -916,7 +833,6 @@ with tab2:
 
 st.markdown("---")
 
-# Performance by Pool button (shown in all modes)
 st.markdown("### 📊 Performance by Pool")
 
 col_btn_perf, col_info = st.columns([1, 4])
@@ -938,16 +854,13 @@ if st.session_state.show_performance_by_pool:
             category_pools = df_bribes_display[pool_match_col].unique().tolist()
             category_pools = [str(p) for p in category_pools if pd.notna(p)]
             
-            # Sort pools by bribe amount (descending)
             if bribe_col in df_bribes_display.columns:
                 pool_bribes_totals = df_bribes_display.groupby(pool_match_col)[bribe_col].sum().sort_values(ascending=False)
                 category_pools_sorted = []
-                # Add pools with bribes first (sorted by amount)
                 for pool in pool_bribes_totals.index:
                     pool_str = str(pool)
                     if pool_str in category_pools:
                         category_pools_sorted.append(pool_str)
-                # Add remaining pools (those with 0 or no bribe data)
                 for pool in category_pools:
                     if pool not in category_pools_sorted:
                         category_pools_sorted.append(pool)
@@ -958,13 +871,10 @@ if st.session_state.show_performance_by_pool:
     st.markdown(f"#### {mode_label} Pools - Individual Performance")
 
     csv_data = None
-    
-    # Pagination for "all" mode (when there are many pools)
     items_per_page = 10
     total_pools = len(category_pools)
     
     if st.session_state.pool_filter_mode_bribes == 'all' and total_pools > items_per_page:
-        # Pagination controls
         total_pages = (total_pools + items_per_page - 1) // items_per_page
         
         pag_col1, pag_col2, pag_col3, pag_col4 = st.columns([0.2, 0.2, 0.2, 0.4])
@@ -981,19 +891,16 @@ if st.session_state.show_performance_by_pool:
         with pag_col4:
             st.write(f"Showing {((st.session_state.performance_page - 1) * items_per_page) + 1}-{min(st.session_state.performance_page * items_per_page, total_pools)} of {total_pools} pools")
         
-        # Calculate pagination range
         start_idx = (st.session_state.performance_page - 1) * items_per_page
         end_idx = start_idx + items_per_page
         paginated_pools = category_pools[start_idx:end_idx]
     else:
-        # No pagination needed for top20/worst20 or when there are few pools
         paginated_pools = category_pools
         if st.session_state.pool_filter_mode_bribes == 'all':
             st.info(f"Showing all {total_pools} pools")
     
     for pool in paginated_pools:
         pool_bribe_data = pd.DataFrame()
-        # Use pool_bribes (aggregated by pool) for metrics
         if not pool_bribes.empty and pool_col in pool_bribes.columns:
             m = pool_bribes[pool_bribes[pool_col].astype(str).str.upper().str.strip() == pool.upper().strip()]
             if not m.empty:
@@ -1018,26 +925,21 @@ if st.session_state.show_performance_by_pool:
                 csv_data['pool_symbol'].astype(str).str.upper().str.strip() == pool.upper().strip()
             ]
             if not csv_match.empty:
-                # Create a minimal pool_bribe_data from CSV
                 pool_bribe_data = csv_match.iloc[[0]].copy()
-                # Map CSV columns to expected columns - prioritize bribe_amount_usd
                 if 'bribe_amount_usd' in pool_bribe_data.columns:
                     pool_bribe_data[bribe_col] = pool_bribe_data['bribe_amount_usd']
                 elif 'amount_usdc' in pool_bribe_data.columns:
                     pool_bribe_data[bribe_col] = pool_bribe_data['amount_usdc']
         
-        # If still empty, try pool_bribes as fallback
         if pool_bribe_data.empty and not pool_bribes.empty and pool_col in pool_bribes.columns:
             pool_bribe_data = pool_bribes[
                 pool_bribes[pool_col].astype(str).str.upper().str.strip() == pool.upper().strip()
             ]
         
-        # Show pool data even if empty (to show all pools from category)
         with st.expander(f"📊 {pool}", expanded=False):
             if not pool_bribe_data.empty:
                 col_p1, col_p2, col_p3 = st.columns(3)
                 
-                # Get values from pool_bribe_data
                 pool_bribes_val = 0
                 if bribe_col in pool_bribe_data.columns:
                     pool_bribes_val = pd.to_numeric(pool_bribe_data[bribe_col].iloc[0], errors='coerce') if pd.notna(pool_bribe_data[bribe_col].iloc[0]) else 0
@@ -1062,7 +964,6 @@ if st.session_state.show_performance_by_pool:
                     else:
                         st.metric("veBAL Votes", "N/A", help="No veBAL votes data available")
             else:
-                # Show data from CSV if available, even if not in df_bribes_display
                 if csv_data is not None and not csv_data.empty:
                     csv_match = csv_data[
                         csv_data['pool_symbol'].astype(str).str.upper().str.strip() == pool.upper().strip()
@@ -1070,8 +971,6 @@ if st.session_state.show_performance_by_pool:
                     if not csv_match.empty:
                         csv_row = csv_match.iloc[0]
                         col_p1, col_p2, col_p3 = st.columns(3)
-                        
-                        # Prioritize bribe_amount_usd, fallback to amount_usdc
                         pool_bribes_val = csv_row.get('bribe_amount_usd', csv_row.get('amount_usdc', 0))
                         pool_bribes_val = pd.to_numeric(pool_bribes_val, errors='coerce') if pd.notna(pool_bribes_val) else 0
                         
@@ -1088,10 +987,8 @@ if st.session_state.show_performance_by_pool:
 
 st.markdown("---")
 
-# Visualizations
 st.markdown("### 📈 Visualizations")
 
-# Single visualization: Bribes vs veBAL Votes (Dual-Axis Chart)
 if 'vebal_votes' in pool_bribes.columns and bribe_col in pool_bribes.columns and not pool_bribes.empty:
         votes_data = pool_bribes[
             (pool_bribes[bribe_col] > 0) & 
@@ -1099,33 +996,26 @@ if 'vebal_votes' in pool_bribes.columns and bribe_col in pool_bribes.columns and
             (pool_bribes['vebal_votes'] > 0)
         ].copy()
         if not votes_data.empty:
-            # Ensure numeric values
             votes_data['vebal_votes'] = pd.to_numeric(votes_data['vebal_votes'], errors='coerce')
             votes_data = votes_data[votes_data['vebal_votes'].notna() & (votes_data['vebal_votes'] > 0)]
             if not votes_data.empty:
-                # Sort by total_bribes_usd in descending order
                 votes_data = votes_data.sort_values(bribe_col, ascending=False).reset_index(drop=True)
                 
-                # Get top pools for readability (top 20 or all if less than 20)
                 display_data = votes_data.head(20) if len(votes_data) > 20 else votes_data
                 
-                # Create dual-axis chart
                 fig = go.Figure()
                 
-                # Add bars for total_bribes_usd (Primary Y-axis, left)
                 fig.add_trace(go.Bar(
                     x=display_data[pool_col],
                     y=display_data[bribe_col],
                     name='Total Bribes (USD)',
-                    marker_color='#4a90e2',  # Professional blue
+                    marker_color='#4a90e2', 
                     yaxis='y',
                     hovertemplate='<b>%{x}</b><br>Total Bribes: $%{y:,.0f}<extra></extra>',
                     text=display_data[bribe_col],
                     texttemplate='$%{text:,.0f}',
                     textposition='outside'
                 ))
-                
-                # Add line with markers for vebal_votes (Secondary Y-axis, right)
                 fig.add_trace(go.Scatter(
                     x=display_data[pool_col],
                     y=display_data['vebal_votes'],
@@ -1187,7 +1077,6 @@ if 'vebal_votes' in pool_bribes.columns and bribe_col in pool_bribes.columns and
 else:
     st.info("Votes data not available")
 
-# Top pools bar chart
 st.markdown("---")
 st.markdown("#### 🏅 Top Pools by Total Bribes")
 if bribe_col in pool_bribes.columns and not pool_bribes.empty:
@@ -1212,7 +1101,6 @@ if bribe_col in pool_bribes.columns and not pool_bribes.empty:
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
-# Timeline if date column exists
 date_col = None
 for col in ['day', 'week_date', 'date', 'block_date', 'timestamp', 'week', 'period', 'time']:
     if col in df_bribes.columns:
@@ -1222,10 +1110,8 @@ for col in ['day', 'week_date', 'date', 'block_date', 'timestamp', 'week', 'peri
 if date_col:
     st.markdown("#### 📅 Bribe Timeline")
     if bribe_col in df_bribes_display.columns and not df_bribes_display.empty:
-        # Ensure date column is properly formatted (clean any remaining time/UTC strings)
         timeline_data = df_bribes_display.copy()
         if date_col in timeline_data.columns:
-            # Clean date strings if they're still strings
             if timeline_data[date_col].dtype == 'object':
                 timeline_data[date_col] = timeline_data[date_col].astype(str).str.replace(r'\s+\d{2}:\d{2}:\d{2}\.\d+\s+UTC', '', regex=True)
                 timeline_data[date_col] = timeline_data[date_col].astype(str).str.replace(r'\s+\d{2}:\d{2}:\d{2}\s+UTC', '', regex=True)
@@ -1233,18 +1119,13 @@ if date_col:
                 timeline_data[date_col] = timeline_data[date_col].astype(str).str.strip()
                 timeline_data[date_col] = pd.to_datetime(timeline_data[date_col], errors='coerce')
             else:
-                # Ensure it's datetime
                 timeline_data[date_col] = pd.to_datetime(timeline_data[date_col], errors='coerce')
             
-            # Remove rows with invalid dates
             timeline_data = timeline_data[timeline_data[date_col].notna()].copy()
-            
-            # Create month column for monthly grouping
             if not timeline_data.empty:
                 timeline_data['year_month'] = timeline_data[date_col].dt.to_period('M').dt.to_timestamp()
         
         if not timeline_data.empty:
-            # Aggregate by month (total, not by pool)
             timeline_agg = timeline_data.groupby('year_month')[bribe_col].sum().reset_index()
             fig_timeline = px.line(
                 timeline_agg,

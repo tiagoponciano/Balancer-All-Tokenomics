@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to classify pools as core or non-core based on historical CSV data.
 

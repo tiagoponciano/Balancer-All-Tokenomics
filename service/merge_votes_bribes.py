@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to merge Votes_Emissions.csv and Bribes_enriched.csv
 
@@ -91,7 +90,6 @@ def merge_votes_bribes(
         s = str(value).strip()
         if s == '':
             return None
-        # Try to parse Python/JSON-like list/tuple strings
         if (s.startswith('[') and s.endswith(']')) or (s.startswith('(') and s.endswith(')')):
             try:
                 parsed = ast.literal_eval(s)
@@ -99,7 +97,6 @@ def merge_votes_bribes(
                     return list(parsed)
             except (ValueError, SyntaxError):
                 pass
-        # Fallback: split on common delimiters
         if '|' in s or ';' in s or ',' in s:
             parts = [p.strip() for p in s.replace(';', '|').replace(',', '|').split('|') if p.strip()]
             if len(parts) > 1:
@@ -144,7 +141,6 @@ def merge_votes_bribes(
                 exploded_rows.append(row)
         return pd.DataFrame(exploded_rows)
 
-    # Build pool -> gauges mapping from FSN_data
     fsn_df['pool_42'] = fsn_df['poolId'].astype(str).str.lower().str.strip().str[:42]
     fsn_df['id_norm'] = fsn_df['id'].astype(str).str.lower().str.strip()
     pool_to_gauges = (
@@ -155,7 +151,6 @@ def merge_votes_bribes(
 
     bribes_df = explode_multi_gauges(bribes_df, pool_to_gauges)
 
-    # Fill missing blockchain in bribes using FSN mappings (gauge -> chain, pool -> chain)
     fsn_df['chain_norm'] = fsn_df['chain'].astype(str).str.lower().str.strip()
     gauge_to_chain = dict(zip(fsn_df['id_norm'], fsn_df['chain_norm']))
     pool_to_chain = (
@@ -186,7 +181,6 @@ def merge_votes_bribes(
 
     bribes_df['blockchain'] = bribes_df.apply(_fill_bribe_chain, axis=1)
 
-    # Ensure pool_42 exists for downstream joins
     if 'pool_42' not in bribes_df.columns:
         def _pool_42_from_row(row):
             for col in ['pool_id', 'derived_pool_address']:
@@ -217,7 +211,6 @@ def merge_votes_bribes(
     votes_df['day'] = pd.to_datetime(votes_df['day'], errors='coerce')
     bribes_df['day'] = pd.to_datetime(bribes_df['day'], errors='coerce')
     
-    # Remove timezone to ensure compatibility
     def remove_timezone(series):
         """Removes timezone from a datetime series if it exists."""
         try:
@@ -303,14 +296,10 @@ def merge_votes_bribes(
     
     print(f"✅ Merge completed: {len(merged_df):,} rows")
     
-    # --- FILTERING LOGIC FOR MULTIPLE GAUGES ---
     if 'is_derived_gauge' in merged_df.columns and 'temp_row_id' in merged_df.columns:
         print("\n🔍 Filtering speculative gauge matches...")
         initial_count = len(merged_df)
         
-        # 1. Separate normal rows from speculative ones
-        # speculative rows have is_derived_gauge == True (and thus a valid temp_row_id)
-        # Note: merged_df['is_derived_gauge'] might contain NaNs for votes_only rows, treat as False
         is_speculative = merged_df['is_derived_gauge'].fillna(False).astype(bool)
         
         normal_rows = merged_df[~is_speculative]
@@ -319,26 +308,14 @@ def merge_votes_bribes(
         if len(speculative_rows) > 0:
             print(f"   Found {len(speculative_rows)} speculative rows to resolve.")
             
-            # Group by temp_row_id to see which candidates matched
-            # We want to keep rows that matched (source == 'both')
-            # If multiple matched, keep all (or handle dupes later)
-            # If none matched, keep a fallback (e.g. ACTIVE or first)
             
             resolved_rows = []
-            
-            # Group by temp_row_id
             for row_id, group in speculative_rows.groupby('temp_row_id'):
                 matches = group[group['source'] == 'both']
                 
                 if len(matches) > 0:
-                    # We found a match! Keep only the matched rows.
                     resolved_rows.append(matches)
                 else:
-                    # No match found for any candidate.
-                    # We need to pick one to avoid duplication/data loss.
-                    # Strategy: Prefer original gauge if available,
-                    # then 'ACTIVE' status if available, else first one.
-
                     if 'gauge_address_original' in group.columns:
                         original = group['gauge_address_original'].dropna().astype(str).str.lower().str.strip()
                         if len(original) > 0:
@@ -352,11 +329,8 @@ def merge_votes_bribes(
                     if 'gauge_status' in group.columns:
                         active = group[group['gauge_status'] == 'ACTIVE']
                         if len(active) > 0:
-                            # Keep first active
                             resolved_rows.append(active.iloc[[0]])
                             continue
-                            
-                    # Fallback: keep the first candidate (arbitrary but consistent)
                     resolved_rows.append(group.iloc[[0]])
             
             if resolved_rows:
@@ -368,9 +342,7 @@ def merge_votes_bribes(
         else:
             print("   No speculative rows found.")
             
-    # Drop temp columns
     merged_df = merged_df.drop(columns=['is_derived_gauge', 'temp_row_id', 'gauge_status'], errors='ignore')
-    # -------------------------------------------
     
     print(f"\n📊 Merge statistics:")
     print(f"   Total rows after merge: {len(merged_df):,}")
@@ -378,7 +350,6 @@ def merge_votes_bribes(
     print(f"   Rows only in Bribes: {(merged_df['source'] == 'bribes_only').sum():,}")
     print(f"   Rows in both (match): {(merged_df['source'] == 'both').sum():,}")
 
-    # Debug: export unmatched bribes to help identify data loss
     bribes_only = merged_df[merged_df['source'] == 'bribes_only'].copy()
     if len(bribes_only) > 0:
         def pool_candidate_count(row):

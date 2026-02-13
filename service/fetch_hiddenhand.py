@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to collect bribe proposal data from HiddenHand Finance API for Balancer
 """

@@ -1,0 +1,44 @@
+# Monthly data update: fetch incremental (last date + 1 to today) and upload to NEON (append only new rows)
+# Runs on the 1st of every month at 00:00 UTC
+#
+# Required secrets (in repo Settings → Secrets and variables → Actions):
+#   DUNE_API_KEY       - Dune Analytics API key
+#   DATABASE_URL       - NEON Postgres connection string
+#
+# Env: NEON_TABLE=balancer_data (table used by mv_pool_summary/mv_monthly_series)
+#      UPLOAD_APPEND=1 (only inserts rows with block_date > last in table)
+# Step 2: Refresh Views workflow runs 1h later.
+name: Monthly NEON Update
+
+on:
+  schedule:
+    # 1st of every month at 00:00 UTC
+    - cron: "0 0 1 * *"
+  workflow_dispatch:
+
+jobs:
+  update-neon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Full pipeline (fetch + merge + upload to NEON)
+        env:
+          DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEON_TABLE: balancer_data
+          USE_NEON_VIEWS: "0"
+          UPLOAD_APPEND: "1"
+          INCREMENTAL: "1"
+        run: python main.py

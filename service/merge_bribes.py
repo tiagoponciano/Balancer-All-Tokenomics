@@ -2,11 +2,12 @@ import pandas as pd
 import os
 from pathlib import Path
 
-DATA_DIR = "../data"
-BALANCER_CSV = os.path.join(DATA_DIR, "Bribes.csv")
-HIDDENHAND_CSV = os.path.join(DATA_DIR, "hiddenhand_bribes.csv")
-GAUGES_CSV = os.path.join(DATA_DIR, "FSN_data.csv")
-OUTPUT_CSV = os.path.join(DATA_DIR, "Bribes_enriched.csv")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+BALANCER_CSV = DATA_DIR / "Bribes.csv"
+HIDDENHAND_CSV = DATA_DIR / "hiddenhand_bribes.csv"
+GAUGES_CSV = DATA_DIR / "FSN_data.csv"
+OUTPUT_CSV = DATA_DIR / "Bribes_enriched.csv"
 
 def normalize_proposal_hash(hash_str):
     if pd.isna(hash_str) or hash_str == '':
@@ -287,5 +288,16 @@ def merge_bribes_data():
     print(f"Gauge addresses filled: {gauge_filled_count}")
 
 
+def main():
+    """Main function to be called from main.py"""
+    try:
+        merge_bribes_data()
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
 if __name__ == "__main__":
-    merge_bribes_data()
+    main()

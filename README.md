@@ -14,9 +14,8 @@ Automated system for collecting, processing, and analyzing tokenomics data from 
 
 ## 📋 Prerequisites
 
-- Python 3.8+
+- Python 3.11+
 - Dune Analytics API Key
-- Email credentials (for automation)
 
 ## 🔧 Installation
 
@@ -31,14 +30,107 @@ pip install -r requirements.txt
 
 ## ⚙️ Configuration
 
-1. Create a `.env` file in the project root:
+1. Create a `.env` file in the project root (see `.env.example` for reference):
 
 ```env
 DUNE_API_KEY=your_dune_api_key_here
-SMTP_PORT=587
+DATABASE_URL=postgresql://...   # For NEON (optional)
+SUPABASE_URL=...               # For Supabase fallback (optional)
+SUPABASE_ANON_KEY=...
+SUPABASE_BUCKET=data
 ```
 
-2. For weekly automation, configure secrets in GitHub Actions (see GitHub Actions documentation)
+2. For monthly automation, configure GitHub Actions secrets (see below).
+
+### Data hosting (NEON) – recommended for the Streamlit app
+
+The final CSVs can be too large for Supabase Storage. Hosting the data in **NEON** (serverless Postgres) avoids size limits and lets the app load data from the database.
+
+- **NEON Launch plan**: usage-based ($0.106/CU-hour compute, $0.35/GB-month storage); no monthly minimum. A ~100k-row table is typically well under 1 GB.
+- **Flow**: Run the pipeline (e.g. monthly), then upload to NEON. The Streamlit app reads from NEON when `DATABASE_URL` is set.
+
+#### How to create your NEON database
+
+1. **Sign up / log in**  
+   Go to [neon.tech](https://neon.tech) and sign up (or log in with GitHub).
+
+2. **Create a project**  
+   - Click **New Project**.  
+   - Choose a name (e.g. `balancer-tokenomics`), region (pick one close to you or your users), and Postgres version (e.g. 16).  
+   - Click **Create project**.
+
+3. **Get the connection string**  
+   - On the project dashboard, open the **Connection details** panel.  
+   - Select **Pooled connection** (recommended for serverless/Streamlit).  
+   - Copy the connection string; it looks like:  
+     `postgresql://USER:PASSWORD@ep-xxx-xxx.region.aws.neon.tech/neondb?sslmode=require`  
+   - (Optional) You can create a dedicated database or role from the **Databases** / **Roles** tabs; the default `neondb` and your user are enough to start.)
+
+4. **Add it to `.env`**  
+   In your project root, in `.env` add:
+   ```env
+   DATABASE_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+   ```
+5. **Upload data**  
+   After generating the final dataset, upload to NEON:
+   ```bash
+   python main.py --upload-to-neon
+   ```
+   Or run the full pipeline; if `DATABASE_URL` is set, the upload runs automatically at the end.
+6. **Run or deploy Streamlit** with the same `DATABASE_URL`. The app will load from NEON first, then fall back to local CSV or Supabase.
+
+**To run Streamlit so it uses NEON:** ensure `DATABASE_URL` is in your `.env` (project root), then from the project root run:
+```bash
+streamlit run script/home.py
+```
+The app loads `.env` from the project root. When data comes from NEON, the sidebar shows **"Data: NEON"**.
+
+#### Running with **full data** (Streamlit Cloud memory limit)
+
+Streamlit Cloud has a ~1 GB memory limit. Loading the full dataset (100k+ rows) can exceed it. **You don’t need to change to fullstack.** Deploy the same Streamlit app on a host with more RAM (e.g. Railway, Render, Fly.io, or a VPS). See **[DEPLOYMENT.md](DEPLOYMENT.md)** for step-by-step options and an optional API backend.
+
+#### Scheduled updates (GitHub Actions)
+
+Three workflows run automatically:
+
+| Workflow | Schedule | Description |
+|----------|----------|-------------|
+| **Monthly NEON Update** | 1st of month, 00:00 UTC | Incremental fetch (last date + 1 → today), merge, upload to NEON |
+| **Refresh NEON Views** | 1st of month, 01:00 UTC | Refresh materialized views (1h after data upload) |
+| **Suspend NEON Compute** | 1st of month, 09:30 UTC | Suspend NEON compute to save costs |
+
+**GitHub Actions secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Required by |
+|--------|-------------|
+| `DUNE_API_KEY` | Monthly NEON Update |
+| `DATABASE_URL` | Monthly NEON Update, Refresh NEON Views |
+| `NEON_PROJECT_ID` | Suspend NEON Compute |
+| `NEON_ENDPOINT_ID` | Suspend NEON Compute |
+| `NEON_API_KEY` | Suspend NEON Compute |
+
+See **[SCHEDULED_UPDATES.md](SCHEDULED_UPDATES.md)** for more details.
+
+#### Monthly incremental runs
+
+When you rerun the pipeline **without** `--start-date` / `--end-date`, the script uses **incremental** dates:
+
+- **Start date** = day after the last date already in your data (from NEON `tokenomics` table or from local `data/Balancer-All-Tokenomics.csv` / `Balancer-All-Tokenomics-Organized.csv`).
+- **End date** = today.
+
+So if the last register was `2026-02-09`, the next run will fetch from `2026-02-10` to today. The new veBAL chunk is **merged** with your existing `veBAL.csv` (no history loss), then the rest of the pipeline runs and the final dataset is uploaded to NEON.
+
+To disable incremental and always use a fixed range, set in `.env`:
+```env
+INCREMENTAL=0
+```
+Then use `--start-date` and `--end-date` explicitly, or rely on `START_DATE` / `END_DATE` env vars.
+
+To run only the upload (e.g. after re-running `--create-final`):
+
+```bash
+python main.py --upload-to-neon
+```
 
 ## 🎯 Usage
 
@@ -92,6 +184,9 @@ python main.py --classify-core-pools
 
 # Create final dataset
 python main.py --create-final
+
+# Upload final CSV to NEON (requires DATABASE_URL in .env)
+python main.py --upload-to-neon
 
 # View help
 python main.py --help
@@ -236,13 +331,13 @@ To ensure compatibility between different address formats:
 | Script | Description |
 |--------|-------------|
 | `main.py` | Main script - orchestrates the entire pipeline |
-| `script/dune_fetcher.py` | Data collection from Dune Analytics |
-| `script/fetch_hiddenhand.py` | Data collection from HiddenHand Finance |
-| `script/merge_bribes.py` | Enriches Dune bribes with HiddenHand metadata (LEFT JOIN) |
-| `script/add_gauge_address.py` | Adds gauge_address to veBAL |
-| `script/merge_votes_bribes.py` | Votes & Bribes Merge |
-| `script/classify_core_pools.py` | Core/Non-Core pools classification |
-| `script/create_final_dataset.py` | Consolidated final dataset creation |
+| `service/dune_fetcher.py` | Data collection from Dune Analytics |
+| `service/fetch_hiddenhand.py` | Data collection from HiddenHand Finance |
+| `service/merge_bribes.py` | Enriches Dune bribes with HiddenHand metadata (LEFT JOIN) |
+| `service/add_gauge_address.py` | Adds gauge_address to veBAL |
+| `service/merge_votes_bribes.py` | Votes & Bribes Merge |
+| `service/classify_core_pools.py` | Core/Non-Core pools classification |
+| `service/create_final_dataset.py` | Consolidated final dataset creation |
 
 ## ❓ Which Dataset Should I Use?
 
