@@ -1,19 +1,3 @@
--- =============================================================================
--- NEON materialized views: do aggregations in the database so the Streamlit app
--- only loads small result sets (no full-table load = no memory limit issues).
---
--- ALIGNED WITH NOTEBOOK: Uses bal_emited_usd (BAL emissions) for direct_incentives,
--- NOT bribe_amount_usd (bribes). Bribes = payments to voters; BAL emissions = protocol schedule.
--- If bal_emited_usd is missing, falls back to bribe_amount_usd for compatibility.
---
--- Run this in NEON (SQL Editor or psql) after your main table exists.
--- REPLACE "balancer_data" below with your table name if different (e.g. tokenomics).
--- If your table does not have gauge_address, remove the gauge_address lines from both views.
--- =============================================================================
-
--- 1) Pool summary: one row per pool (project_contract_address) with totals + pool_category.
---    Matches notebook behavioral engine: group by project_contract_address, exclude dead and low-record pools.
---    direct_incentives = bal_emited_usd (BAL emissions) with fallback to bribe_amount_usd.
 DROP MATERIALIZED VIEW IF EXISTS mv_pool_summary;
 CREATE MATERIALIZED VIEW mv_pool_summary AS
 WITH base AS (
@@ -33,7 +17,7 @@ WITH base AS (
     MIN(block_date) AS first_date,
     MAX(block_date) AS last_date,
     COUNT(*)::int AS n_records
-  FROM balancer_data   -- change to your table name (e.g. tokenomics) if needed
+  FROM balancer_data   
   WHERE project_contract_address IS NOT NULL AND TRIM(project_contract_address::text) <> ''
   GROUP BY TRIM(COALESCE(project_contract_address::text, ''))
   HAVING COUNT(*) >= 4
@@ -66,8 +50,6 @@ SELECT
   total_votes_received,
   first_date,
   last_date,
-  -- Pool category (mirrors utils.classify_pools / notebook behavioral engine)
-  -- roi = aggregate_roi (emissions_roi at pool-level = total_rev/total_inc)
   CASE
     WHEN total_direct_incentives = 0 AND total_protocol_fee_usd > 15000 THEN 'Legitimate'
     WHEN total_direct_incentives = 0 AND total_protocol_fee_usd > 0 THEN 'Sustainable'
@@ -84,12 +66,8 @@ SELECT
   END AS pool_category
 FROM with_metrics
 WITH DATA;
-
--- UNIQUE index required for REFRESH MATERIALIZED VIEW CONCURRENTLY (avoids locking base table)
 CREATE UNIQUE INDEX ON mv_pool_summary (project_contract_address);
 
--- 2) Monthly series: one row per (month, project_contract_address) for time-series charts
---    direct_incentives = bal_emited_usd (BAL emissions) with fallback to bribe_amount_usd
 DROP MATERIALIZED VIEW IF EXISTS mv_monthly_series;
 CREATE MATERIALIZED VIEW mv_monthly_series AS
 SELECT
@@ -108,15 +86,9 @@ FROM balancer_data   -- change to your table name (e.g. tokenomics) if needed
 WHERE project_contract_address IS NOT NULL AND TRIM(project_contract_address::text) <> ''
 GROUP BY date_trunc('month', (block_date::date)), TRIM(COALESCE(project_contract_address::text, ''))
 WITH DATA;
-
--- UNIQUE index required for REFRESH MATERIALIZED VIEW CONCURRENTLY (avoids locking base table)
 CREATE UNIQUE INDEX ON mv_monthly_series (year_month, project_contract_address);
 CREATE INDEX ON mv_monthly_series (year_month);
 CREATE INDEX ON mv_monthly_series (project_contract_address);
-
--- 3) Daily series: one row per (block_date, project_contract_address) for retention analysis
---    (Sticky/Mercenary/Exodus, mercenary coefficient, half-life). Aggregated across blockchains
---    so retention_per_pool gets one row per pool per date with summed TVL. version=2 to match notebook.
 DROP MATERIALIZED VIEW IF EXISTS mv_daily_series;
 CREATE MATERIALIZED VIEW mv_daily_series AS
 SELECT
@@ -146,20 +118,7 @@ WHERE project_contract_address IS NOT NULL AND TRIM(project_contract_address::te
   AND version::text = '2'
 GROUP BY (block_date::date), TRIM(COALESCE(project_contract_address::text, ''))
 WITH DATA;
-
--- UNIQUE index for REFRESH MATERIALIZED VIEW CONCURRENTLY
 CREATE UNIQUE INDEX ON mv_daily_series (block_date, project_contract_address);
 CREATE INDEX ON mv_daily_series (project_contract_address);
 CREATE INDEX ON mv_daily_series (block_date);
 
--- 4) Refresh (run after loading new data into the base table)
--- REFRESH MATERIALIZED VIEW CONCURRENTLY mv_pool_summary;
--- REFRESH MATERIALIZED VIEW CONCURRENTLY mv_monthly_series;
--- REFRESH MATERIALIZED VIEW CONCURRENTLY mv_daily_series;
-
--- If your table is tokenomics (or another name), replace "balancer_data" in all views above.
---
--- SUMMARY:
---   mv_pool_summary   : pool-level aggregates (Streamlit + notebook fast mode)
---   mv_monthly_series : monthly per pool (macro health chart)
---   mv_daily_series   : daily per pool aggregated across chains (retention, mercenary coefficient)

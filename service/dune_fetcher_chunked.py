@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Dune fetcher with chunking support for large queries
 """
@@ -33,19 +32,16 @@ def fetch_dune_query_with_params(
         
         dune = DuneClient(api_key)
         
-        # Convert params to QueryParameter objects
         query_params = [
             QueryParameter.text_type(name=key, value=value)
             for key, value in params.items()
         ]
         
-        # Create query object
         query = QueryBase(
             query_id=query_id,
             params=query_params
         )
         
-        # Execute query with parameters
         query_result = dune.run_query(query)
         
         if not query_result or not hasattr(query_result, 'result') or not query_result.result:
@@ -88,8 +84,6 @@ def fetch_chunked_query(
     chunk_label = f"{chunk_days}-day" if use_days else f"{chunk_months or 2}-month"
     print(f"\n📊 Fetching query {query_id} in {chunk_label} chunks...")
     print(f"   Date range: {start_date} to {end_date}")
-    
-    # Parse dates
     start = datetime.strptime(start_date, '%Y-%m-%d')
     end = datetime.strptime(end_date, '%Y-%m-%d')
     
@@ -100,21 +94,16 @@ def fetch_chunked_query(
     while current_start <= end:
         chunk_num += 1
         
-        # Calculate chunk end date
         if use_days:
             chunk_end = current_start + timedelta(days=chunk_days) - timedelta(days=1)
         else:
             chunk_end = current_start + relativedelta(months=chunk_months or 2) - timedelta(days=1)
         if chunk_end > end:
             chunk_end = end
-        
-        # Format dates for Dune
         chunk_start_str = current_start.strftime('%Y-%m-%d')
         chunk_end_str = chunk_end.strftime('%Y-%m-%d')
         
         print(f"\n   Chunk {chunk_num}: {chunk_start_str} to {chunk_end_str}")
-        
-        # Fetch this chunk (retry up to 2 times on failure)
         params = {
             'start_date': chunk_start_str,
             'end_date': chunk_end_str
@@ -133,8 +122,6 @@ def fetch_chunked_query(
             print(f"   ✓ Fetched {len(rows):,} rows")
         else:
             print(f"   ⚠ No data returned for this chunk (all retries failed)")
-        
-        # Move to next chunk
         current_start = chunk_end + timedelta(days=1)
     
     print(f"\n   ✓ Total rows fetched: {len(all_rows):,}")
@@ -180,7 +167,6 @@ def fetch_and_save_chunked(
     output_path = output_dir / output_filename
 
     try:
-        # Fetch data in chunks
         rows = fetch_chunked_query(
             api_key=api_key,
             query_id=query_id,
@@ -193,17 +179,11 @@ def fetch_and_save_chunked(
         if not rows:
             print(f"✗ No data returned for query {query_id}")
             return False, 0, None
-        
-        # Convert to DataFrame
         df = pd.DataFrame(rows)
-        
-        # Remove duplicates (in case of overlapping data at chunk boundaries)
         initial_count = len(df)
         df = df.drop_duplicates()
         if len(df) < initial_count:
             print(f"   ℹ Removed {initial_count - len(df)} duplicate rows")
-        
-        # Incremental: merge with existing file so we keep full history
         if merge_with_existing and output_path.exists() and output_path.stat().st_size > 0:
             try:
                 existing = pd.read_csv(output_path)

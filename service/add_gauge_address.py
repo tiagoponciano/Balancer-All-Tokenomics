@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to add gauge_address to veBAL.csv based on matching with FSN_data.csv.
 
@@ -97,12 +96,9 @@ def add_gauge_address(
     fsn_df['id'] = fsn_df['id'].astype(str).str.lower().str.strip()
     
     print("\n🔍 Creating match between datasets...")
-    
-    # CRITICAL FIX: Truncate BOTH FSN poolId AND veBAL project_contract_address to first 42 chars
-    # Keep ALL pools, even if shorter than 42 chars (just take what's available)
+
     fsn_df['poolId_42'] = fsn_df['poolId'].str[:42]
     
-    # Also truncate veBAL project_contract_address to first 42 chars for matching
     vebal_df['project_contract_address_42'] = vebal_df['project_contract_address'].str[:42]
     
     print(f"   FSN_data after processing: {len(fsn_df):,} rows")
@@ -125,10 +121,8 @@ def add_gauge_address(
     
     print("\n🔄 Applying match to veBAL...")
     
-    # Match using truncated 42-char addresses
     vebal_df['gauge_address'] = vebal_df['project_contract_address_42'].map(gauge_mapping)
     
-    # Clean up temporary column
     vebal_df = vebal_df.drop(columns=['project_contract_address_42'])
     
     matched_count = vebal_df['gauge_address'].notna().sum()

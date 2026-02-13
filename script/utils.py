@@ -16,7 +16,6 @@ def _log(msg: str) -> None:
     except Exception:
         pass
 
-# Load environment variables (cwd and project root so Streamlit finds .env)
 load_dotenv()
 try:
     _script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -25,24 +24,22 @@ try:
 except Exception:
     pass
 
-# Supabase configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # For private buckets
-SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "data")  # Default bucket name
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "data")
 
 def get_supabase_client():
     """Initialize and return Supabase client if credentials are available"""
     if not SUPABASE_URL:
         return None
     
-    # Prefer service key for private buckets, fallback to anon key
     supabase_key = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
     if not supabase_key:
         return None
     
     try:
-        from supabase import create_client, Client  # type: ignore
+        from supabase import create_client, Client
         supabase: Client = create_client(SUPABASE_URL, supabase_key)
         return supabase
     except ImportError:
@@ -59,12 +56,8 @@ def download_csv_from_supabase(filename, return_error=False):
         return None
     
     try:
-        # Download file from Supabase Storage
-        # For private buckets, service key is required
-        # For public buckets, anon key works
         response = supabase.storage.from_(SUPABASE_BUCKET).download(filename)
         if response:
-            # Convert bytes to DataFrame
             df = pd.read_csv(io.BytesIO(response))
             if return_error:
                 return df, None
@@ -73,7 +66,6 @@ def download_csv_from_supabase(filename, return_error=False):
         error_msg = str(e)
         if return_error:
             return None, error_msg
-        # Silently fail - will fallback to local filesystem
         pass
     if return_error:
         return None, "File not found in Supabase Storage"
@@ -81,22 +73,19 @@ def download_csv_from_supabase(filename, return_error=False):
 
 def load_aggregated_csv(filename):
     """Load aggregated CSV file from Supabase Storage or local filesystem"""
-    # First, try to download from Supabase
     df = download_csv_from_supabase(filename)
     if df is not None and not df.empty:
         return df
     
-    # Fallback to local filesystem
     cwd = os.getcwd()
     
-    # Try different possible file paths (in order of likelihood)
     file_paths = [
-        os.path.join(cwd, 'data', filename),  # data/file.csv (when running from root)
-        os.path.abspath(os.path.join(cwd, 'data', filename)),  # absolute path from root
-        os.path.abspath(os.path.join(cwd, '..', 'data', filename)),  # ../data/file.csv (when running from script/)
-        os.path.abspath(os.path.join(cwd, '..', '..', 'data', filename)),  # ../../data/file.csv
-        f'data/{filename}',  # relative
-        filename  # current dir
+        os.path.join(cwd, 'data', filename),
+        os.path.abspath(os.path.join(cwd, 'data', filename)),
+        os.path.abspath(os.path.join(cwd, '..', 'data', filename)),
+        os.path.abspath(os.path.join(cwd, '..', '..', 'data', filename)),
+        f'data/{filename}',
+        filename
     ]
     
     for path in file_paths:
@@ -109,16 +98,10 @@ def load_aggregated_csv(filename):
     
     return None
 
-# Prevent this file from being rendered as a Streamlit page
-# This is a utility module, not a page - it should only be imported
-# Check if this is being run as a page (has page config or is being accessed directly)
 try:
-    # If this file is accessed as a page, show a message and stop
     if hasattr(st, '_is_running_with_streamlit') and st._is_running_with_streamlit:
-        # Check if we're in the main execution context (not imported)
         import inspect
         frame = inspect.currentframe()
-        # If called directly (not imported), show message
         if frame and frame.f_back and 'streamlit' in str(frame.f_back.f_code.co_filename):
             st.info("ℹ️ **utils.py** is a utility module, not a page.\n\nPlease use the pages from the sidebar menu: Home, Bribes Analysis, Pool Classification, etc.")
             st.stop()
@@ -130,7 +113,6 @@ def inject_css():
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
-        /* --- ESTRUTURA GERAL --- */
         .stApp {
             background: linear-gradient(135deg, #0F1419 0%, #1A1F26 100%);
             font-family: 'Inter', sans-serif;
@@ -252,13 +234,11 @@ def inject_css():
         section[data-testid="stSidebar"] hr {
             margin: 0.4rem 0 !important;
         }
-        /* Saltinho on page change: same entrance animation for Date Filter as sidebar buttons */
         @keyframes sidebarSaltinho {
             0%   { transform: translateY(0) scale(1); }
             40%  { transform: translateY(-2px) scale(1.01); }
             100% { transform: translateY(0) scale(1); }
         }
-        /* Date Filter: Year & Quarter — same color/weight as Top 20, keep default font-size */
         section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"]:has(div[data-baseweb="select"]:not(:has(span[role="listbox"] > span))) p,
         section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"]:has(div[data-baseweb="select"]:not(:has(span[role="listbox"] > span))) label {
             font-size: 0.8125rem !important; 
@@ -287,8 +267,6 @@ def inject_css():
             font-size: 0.8125rem;
         }
         
-        /* --- BOTÕES PADRÃO (fallback para outros botões) --- */
-        /* Exclui explicitamente os botões com IDs específicos (genéricos e específicos) */
         .stButton > button:not([id^="btn_top20"]):not([id^="btn_worst20"]):not([id^="btn_select_all"]):not(#btn_performance_by_pool):not([id^="btn_login"]):not([id^="btn_logout"]):not(.logout-button):not([key="logout_btn"]):not([key="login_btn"]) {
             width: 110px;
             background-color: rgba(103, 162, 225, 0.1);
@@ -306,7 +284,6 @@ def inject_css():
             border-color: rgba(103, 162, 225, 0.5);
         }
         
-        /* --- BOTÃO TOP 20 (genérico para todas as páginas) --- */
         button[id^="btn_top20"],
         [id^="btn_top20"] {
             width: 110px !important;
@@ -379,7 +356,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* --- BOTÃO WORST 20 (genérico para todas as páginas) --- */
         button[id^="btn_worst20"],
         [id^="btn_worst20"] {
             width: 110px !important;
@@ -452,7 +428,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* --- BOTÃO SELECT ALL (genérico para todas as páginas) --- */
         button[id^="btn_select_all"],
         [id^="btn_select_all"] {
             width: 110px !important;
@@ -525,7 +500,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* --- BOTÕES DE VERSÃO (V2, V3, All Versions) --- */
         button[id^="btn_v2_"],
         button[id^="btn_v3_"],
         button[id^="btn_all_versions_"],
@@ -626,7 +600,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* --- BOTÕES DE GAUGE (Gauge, No Gauge, Select All) --- */
         button[id^="btn_gauge_"],
         button[id^="btn_no_gauge_"],
         button[id^="btn_all_gauge_"],
@@ -728,8 +701,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* --- BOTÃO SHOW PERFORMANCE BY POOL --- */
-        /* Seletor usando atributo data customizado (mais confiável) */
         button[data-button-type="performance"],
         button[data-testid="stBaseButton-secondary"][data-button-type="performance"] {
             width: 250px !important;
@@ -749,7 +720,6 @@ def inject_css():
             letter-spacing: 0.02em !important;
         }
         
-        /* Classe de fallback aplicada via JavaScript */
         button.performance-button-fallback,
         button[data-testid="stBaseButton-secondary"].performance-button-fallback,
         button[data-testid="stBaseButton-primary"].performance-button-fallback {
@@ -770,8 +740,6 @@ def inject_css():
             letter-spacing: 0.02em !important;
         }
         
-        /* Múltiplos seletores com alta especificidade para garantir prioridade */
-        /* Ordem: do mais específico ao menos específico */
         button[data-testid="stBaseButton-secondary"]#btn_performance_by_pool,
         button[data-testid="stBaseButton-primary"]#btn_performance_by_pool,
         button[data-testid*="stBaseButton"]#btn_performance_by_pool,
@@ -779,7 +747,6 @@ def inject_css():
         div[data-testid="stButton"] > button#btn_performance_by_pool,
         button#btn_performance_by_pool,
         #btn_performance_by_pool {
-            /* width precisa de !important porque pode ser sobrescrito por estilos inline do Streamlit */
             width: 250px !important;
             max-width: 250px !important;
             min-width: 250px !important;
@@ -797,7 +764,6 @@ def inject_css():
             letter-spacing: 0.02em !important;
         }
         
-        /* Pseudo-elements para o botão de performance (atributo data) */
         button[data-button-type="performance"]::before,
         button[data-testid="stBaseButton-secondary"][data-button-type="performance"]::before {
             content: '' !important;
@@ -850,7 +816,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* Pseudo-elements para o botão de performance (classe de fallback) */
         button.performance-button-fallback::before {
             content: '' !important;
             position: absolute !important;
@@ -897,7 +862,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* Pseudo-elements para o botão de performance (ID) */
         #btn_performance_by_pool::before,
         button#btn_performance_by_pool::before {
             content: '' !important;
@@ -950,7 +914,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* Seletor adicional com máxima especificidade para garantir que o botão de performance nunca receba o estilo padrão */
         button[data-testid="stBaseButton-secondary"]#btn_performance_by_pool.st-emotion-cache-1anq8dj,
         button[data-testid="stBaseButton-primary"]#btn_performance_by_pool.st-emotion-cache-1anq8dj,
         button[data-testid*="stBaseButton"]#btn_performance_by_pool[class*="st-emotion"] {
@@ -960,7 +923,6 @@ def inject_css():
             height: 56px !important;
         }
 
-        /* --- BOTÃO LOGIN --- */
         button[id^="btn_login"],
         [id^="btn_login"],
         button[key="login_btn"],
@@ -1047,7 +1009,6 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* --- BOTÃO LOGOUT --- */
         button[id^="btn_logout"],
         [id^="btn_logout"],
         button[key="logout_btn"] {
@@ -1127,12 +1088,10 @@ def inject_css():
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* --- SELECT / DROPDOWN STYLING (BASEWEB) — same glow and animation as other filters --- */
         div[data-baseweb="select"] {
             position: relative;
         }
         
-        /* Main select container: glow and transition */
         div[data-baseweb="select"] > div:first-child {
             background: linear-gradient(135deg, rgba(103, 162, 225, 0.12) 0%, rgba(103, 162, 225, 0.06) 100%) !important;
             border: 1.5px solid rgba(103, 162, 225, 0.35) !important;
@@ -1166,7 +1125,6 @@ def inject_css():
             box-shadow: 0 0 0 3px rgba(103, 162, 225, 0.35), 0 4px 16px rgba(103, 162, 225, 0.2) !important;
         }
         
-        /* --- SIDEBAR DATE FILTER (Year/Quarter): same brightness & animation as Pool Selection (Top 20) --- */
         section[data-testid="stSidebar"] div[data-baseweb="select"]:not(:has(span[role="listbox"] > span)) > div:first-child {
             background: linear-gradient(135deg, rgba(103, 162, 225, 0.18) 0%, rgba(103, 162, 225, 0.08) 100%) !important;
             border: 1.5px solid rgba(103, 162, 225, 0.45) !important;
@@ -1221,7 +1179,6 @@ def inject_css():
         section[data-testid="stSidebar"] div[data-baseweb="select"]:not(:has(span[role="listbox"] > span)) > div:first-child:focus-within {
             box-shadow: 0 0 0 3px rgba(103, 162, 225, 0.35), 0 6px 20px rgba(103, 162, 225, 0.3) !important;
         }
-        /* Date Filter: same "pulo" (active) as Pool Selection when clicking */
         section[data-testid="stSidebar"] div[data-baseweb="select"]:not(:has(span[role="listbox"] > span)) > div:first-child:active {
             transform: translateY(-1px) scale(1.01) !important;
             box-shadow: 0 3px 12px rgba(103, 162, 225, 0.2) !important;
@@ -1234,7 +1191,6 @@ def inject_css():
             justify-content: center !important;
             align-items: center !important;
         }
-        /* Prevent typing in sidebar selectbox: input is display-only; pointer on whole dropdown */
         section[data-testid="stSidebar"] div[data-baseweb="select"] > div:first-child {
             cursor: pointer !important;
         }
@@ -1243,7 +1199,6 @@ def inject_css():
             cursor: pointer !important;
         }
         
-        /* Selected values display - scrollable container */
         div[data-baseweb="select"] span[role="listbox"] {
             display: flex !important;
             flex-wrap: wrap !important;
@@ -1252,7 +1207,6 @@ def inject_css():
             align-items: flex-start !important;
         }
         
-        /* Custom scrollbar for multiselect */
         div[data-baseweb="select"] > div:first-child::-webkit-scrollbar { width: 6px !important; }
         div[data-baseweb="select"] > div:first-child::-webkit-scrollbar-track {
             background: rgba(255, 255, 255, 0.1) !important; border-radius: 3px !important;
@@ -1264,7 +1218,6 @@ def inject_css():
             background: rgba(255, 255, 255, 0.5) !important;
         }
         
-        /* Multiselect tags/chips */
         div[data-baseweb="select"] span[role="listbox"] > span,
         div[data-baseweb="select"] span[role="listbox"] > div {
             background-color: #B1ACF1 !important;
@@ -1278,18 +1231,15 @@ def inject_css():
             margin: 0.125rem !important;
         }
         
-        /* Placeholder text */
         div[data-baseweb="select"] div[data-baseweb="select"] > div > div[data-baseweb="select"] {
             color: rgba(255, 255, 255, 0.7) !important;
         }
         
-        /* Input text color */
         div[data-baseweb="select"] input,
         div[data-baseweb="select"] div[data-baseweb="select"] input {
             color: white !important;
         }
         
-        /* Multiselect dropdown */
         ul[role="listbox"],
         div[data-baseweb="popover"] {
             background-color: #1A1F26 !important;
@@ -1319,7 +1269,6 @@ def inject_css():
     <script>
         console.log('[Button IDs] Script do utils.py carregado!');
         
-        // Script de fallback para aplicar classe ao botão de performance
         (function() {
             function applyPerformanceButtonClass() {
                 const contexts = [
@@ -1334,7 +1283,6 @@ def inject_css():
                     const buttons = doc.querySelectorAll('button[data-testid*="stBaseButton"]');
                     
                     buttons.forEach((button, index) => {
-                        // Tenta pegar o texto de múltiplas formas
                         let text = '';
                         try {
                             text = (button.textContent || button.innerText || '').trim();
@@ -1354,10 +1302,7 @@ def inject_css():
                         
                         const textLower = text.toLowerCase();
                         
-                        // Detecta botões "Top 20", "Worst 20" e "Select All" em todas as páginas
-                        // Aplica IDs que começam com os prefixos corretos para que o CSS funcione
                         if (text === 'Top 20' || textLower === 'top 20') {
-                            // Garante que o ID comece com btn_top20
                             if (!button.id || !button.id.startsWith('btn_top20')) {
                                 button.id = 'btn_top20';
                             }
@@ -1370,26 +1315,20 @@ def inject_css():
                                 button.id = 'btn_select_all';
                             }
                         } else if (text === 'Login' || textLower === 'login') {
-                            // Botão de login
                             if (!button.id || !button.id.startsWith('btn_login')) {
                                 button.id = 'btn_login';
                             }
                         } else if (text.includes('Logout') || text.includes('🚪') || textLower.includes('logout')) {
-                            // Botão de logout
                             if (!button.id || !button.id.startsWith('btn_logout')) {
                                 button.id = 'btn_logout';
                             }
                         } else if (text.includes('Show Performance') || text.includes('Performance by Pool') || textLower.includes('performance') || text.includes('🔍')) {
-                            // Aplica ID se ainda não tiver
                             if (!button.id || button.id !== 'btn_performance_by_pool') {
                                 button.id = 'btn_performance_by_pool';
                             }
-                            // Aplica atributo data customizado
                             button.setAttribute('data-button-type', 'performance');
-                            // Aplica classe de fallback
                             button.classList.add('performance-button-fallback');
                             
-                            // Aplica TODOS os estilos inline diretamente (máxima prioridade)
                             const styles = {
                                 'width': '250px',
                                 'min-width': '250px',
@@ -1418,7 +1357,6 @@ def inject_css():
                 });
             }
             
-            // Sidebar selectbox: prevent typing (readonly), keep dropdown click working
             function makeSidebarSelectReadOnly() {
                 const contexts = [document, window.parent?.document || document, window.top?.document || document];
                 contexts.forEach(doc => {
@@ -1434,11 +1372,9 @@ def inject_css():
                 });
             }
             
-            // Executa imediatamente
             applyPerformanceButtonClass();
             makeSidebarSelectReadOnly();
             
-            // Executa após delays
             setTimeout(applyPerformanceButtonClass, 100);
             setTimeout(applyPerformanceButtonClass, 300);
             setTimeout(applyPerformanceButtonClass, 500);
@@ -1446,11 +1382,9 @@ def inject_css():
             setTimeout(makeSidebarSelectReadOnly, 200);
             setTimeout(makeSidebarSelectReadOnly, 600);
             
-            // Executa repetidamente
             setInterval(applyPerformanceButtonClass, 2000);
             setInterval(makeSidebarSelectReadOnly, 1500);
             
-            // Observa mudanças no DOM
             if (window.MutationObserver) {
                 const observer = new MutationObserver(() => {
                     setTimeout(applyPerformanceButtonClass, 50);
@@ -1475,25 +1409,20 @@ def inject_css():
 
 def check_authentication():
     """Check if user is authenticated, show login page if not"""
-    # Credentials from environment variables (required)
     CORRECT_USERNAME = os.getenv("LOGIN_USERNAME")
     CORRECT_PASSWORD = os.getenv("LOGIN_PASSWORD")
     
-    # Validate that credentials are set
     if not CORRECT_USERNAME or not CORRECT_PASSWORD:
         st.error("Authentication credentials not configured. Please set LOGIN_USERNAME and LOGIN_PASSWORD in your .env file.")
         st.stop()
         return False
     
-    # Initialize authentication state
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
     
-    # If already authenticated, allow access
     if st.session_state.authenticated:
         return True
     
-    # Show login page
     st.markdown("""
     <style>
         .login-title {
@@ -1522,12 +1451,9 @@ def check_authentication():
             border-color: #67A2E1 !important;
             box-shadow: 0 0 0 3px rgba(103, 162, 225, 0.2) !important;
         }
-        /* CSS do botão de login já está no inject_css() */
-        /* Mantém apenas estilos específicos para outros botões na página de login se necessário */
     </style>
     """, unsafe_allow_html=True)
     
-    # Center the login form
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown('<div class="login-title">🔐 Authentication Required</div>', unsafe_allow_html=True)
@@ -1546,7 +1472,6 @@ def check_authentication():
                 else:
                     st.error("❌ Invalid username or password. Please try again.")
     
-    # Hide sidebar and menu when showing login
     st.markdown("""
     <style>
         section[data-testid="stSidebar"] {
@@ -1562,8 +1487,6 @@ def check_authentication():
 
 def show_logout_button():
     """Show logout button in top right corner"""
-    # Create button (will be positioned in the column passed to this function)
-    # CSS já está aplicado no inject_css()
     if st.button("🚪 Logout", key="logout_btn"):
         st.session_state.authenticated = False
         st.rerun()
@@ -1576,11 +1499,9 @@ def show_version_filter(session_key='version_filter', on_change_callback=None):
         session_key: Session state key for storing version filter (default: 'version_filter')
         on_change_callback: Optional callback function to call when filter changes
     """
-    # Initialize session state
     if session_key not in st.session_state:
         st.session_state[session_key] = 'all'
     
-    # Create filter container at the top of sidebar
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🔧 Select Version")
     
@@ -1600,7 +1521,6 @@ def show_version_filter(session_key='version_filter', on_change_callback=None):
                 on_change_callback()
             st.rerun()
     
-    # Show "All Versions" button only when a filter is active
     if st.session_state[session_key] in ['v2', 'v3']:
         if st.sidebar.button("Select All", key=f"btn_all_versions_{session_key}", use_container_width=True):
             st.session_state[session_key] = 'all'
@@ -1626,19 +1546,14 @@ def get_balancer_ui_url(blockchain, pool_address, version=None):
     
     address = str(pool_address).strip()
     
-    # Determine version from address length if not provided
-    # V3 pools: 42 characters (0x + 40 hex chars)
-    # V2 pools: 66 characters (0x + 64 hex chars - includes pool ID)
     if version is None:
         if len(address) > 42:
             version = 2
         else:
             version = 3
     
-    # Convert version to v2/v3 string
     version_str = f"v{version}" if version in [2, 3] else "v2"
     
-    # Use blockchain name directly (ethereum, arbitrum, etc.)
     chain = str(blockchain).lower()
     
     return f"https://balancer.fi/pools/{chain}/{version_str}/{address}"
@@ -1658,7 +1573,6 @@ def get_explorer_url(blockchain, address):
     if pd.isna(address) or not address or str(address).strip() == '':
         return ''
     
-    # Map blockchain names to explorer URLs
     explorer_map = {
         'ethereum': 'https://etherscan.io/address',
         'arbitrum': 'https://arbiscan.io/address',
@@ -1698,7 +1612,6 @@ def apply_version_filter(df, session_key='version_filter'):
 
     if version_filter == 'all':
         return df
-    # Coerce to numeric so view data (version as "2"/"3") and full data (2/3) both work
     version_num = pd.to_numeric(df['version'], errors='coerce').fillna(0).astype(int)
     if version_filter == 'v2':
         return df.loc[version_num == 2].copy()
@@ -1716,11 +1629,9 @@ def show_gauge_filter(session_key='gauge_filter', on_change_callback=None):
         session_key: Session state key for storing filter mode (default: 'gauge_filter')
         on_change_callback: Optional callback function to call when filter changes
     """
-    # Initialize session state
     if session_key not in st.session_state:
         st.session_state[session_key] = 'all'
     
-    # Create filter container in sidebar
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🎯 Gauge Filter")
     
@@ -1740,7 +1651,6 @@ def show_gauge_filter(session_key='gauge_filter', on_change_callback=None):
                 on_change_callback()
             st.rerun()
     
-    # Show "Select All" button only when a filter is active
     if st.session_state[session_key] in ['gauge', 'no_gauge']:
         if st.sidebar.button("Select All", key=f"btn_all_gauge_{session_key}", use_container_width=True):
             st.session_state[session_key] = 'all'
@@ -1776,7 +1686,6 @@ def apply_gauge_filter(df, session_key='gauge_filter'):
         & (df['gauge_address'].astype(str).str.strip() != '')
         & (df['gauge_address'].astype(str).str.lower() != 'nan')
     )
-    # When no rows have gauge (e.g. view data: we set gauge_address to ""), don't empty the table
     if has_gauge.sum() == 0:
         return df
 
@@ -1796,11 +1705,9 @@ def show_pool_filters(session_key='pool_filter_mode', on_change_callback=None):
         session_key: Session state key for storing filter mode (default: 'pool_filter_mode')
         on_change_callback: Optional callback function to call when filter changes
     """
-    # Initialize session state
     if session_key not in st.session_state:
         st.session_state[session_key] = 'all'
     
-    # Create filter container at the top of sidebar
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🔍 Pool Selection")
     
@@ -1820,7 +1727,6 @@ def show_pool_filters(session_key='pool_filter_mode', on_change_callback=None):
                 on_change_callback()
             st.rerun()
     
-    # Show "Select All" button only when a filter is active
     if st.session_state[session_key] in ['top20', 'worst20']:
         if st.sidebar.button("Select All", key=f"btn_select_all_{session_key}"):
             st.session_state[session_key] = 'all'
@@ -1829,7 +1735,6 @@ def show_pool_filters(session_key='pool_filter_mode', on_change_callback=None):
             st.rerun()
 
 
-# Quarters: 1Q (Jan–Mar), 2Q (Apr–Jun), 3Q (Jul–Sep), 4Q (Oct–Dec)
 QUARTER_OPTIONS = [
     ("All", None),
     ("1Q (Jan–Mar)", [1, 2, 3]),
@@ -1853,19 +1758,15 @@ def show_date_filter_sidebar(df, key_prefix="date_filter"):
         st.sidebar.markdown("---")
         st.sidebar.markdown("### 📅 Date Filter")
         
-        # Prepare dataframe for filtering - add year and quarter columns with descriptions
         df_filter = df.copy()
         dt = pd.to_datetime(df_filter["block_date"], errors="coerce")
         
-        # Filter out rows with invalid dates
         valid_dates_mask = dt.notna()
         df_filter = df_filter[valid_dates_mask].copy()
         dt = dt[valid_dates_mask]
         
-        # Add Year column
         df_filter['Year'] = dt.dt.year.fillna(0).astype(int).astype(str)
         
-        # Map quarter to descriptive labels
         quarter_map = {
             1: '1Q (Jan-Mar)',
             2: '2Q (Apr-Jun)',
@@ -1874,23 +1775,19 @@ def show_date_filter_sidebar(df, key_prefix="date_filter"):
         }
         df_filter['Quarter'] = dt.dt.quarter.fillna(0).astype(int).map(quarter_map).fillna('Unknown')
         
-        # Remove any rows with 'Unknown' quarter
         df_filter = df_filter[df_filter['Quarter'] != 'Unknown'].copy()
         
         if df_filter.empty:
             st.sidebar.warning("⚠️ No valid dates found in the data")
             return df
         
-        # Create dynamic filters - use unique column names to avoid conflicts
         dynamic_filters = DynamicFilters(
             df_filter, 
             filters=['Year', 'Quarter']
         )
         
-        # Display filters in sidebar
         dynamic_filters.display_filters(location='sidebar')
         
-        # Get filtered dataframe and remove temporary columns
         filtered_df = dynamic_filters.filter_df()
         filtered_df = filtered_df.drop(columns=['Year', 'Quarter'], errors='ignore')
         
@@ -1922,15 +1819,11 @@ def apply_date_filter(df, year, quarter_months):
     return df
 
 
-# Primary data source: Balancer-All-Tokenomics.csv (merge of financial + votes). Fallback: balancer_v2_merged / master.
 MAIN_DATA_FILENAME = 'Balancer-All-Tokenomics.csv'
 BAL_EMISSIONS_FILENAME = 'BAL_Emissions_by_GaugePool.csv'
 
-# NEON/Postgres: table name. Override with env NEON_TABLE (e.g. NEON_TABLE=balancer_data if you \copy into balancer_data).
 NEON_TABLE_MAIN = os.getenv("NEON_TABLE", "tokenomics").strip() or "tokenomics"
 
-# Load from materialized views (mv_pool_summary, mv_monthly_series) when we have a DB, unless explicitly disabled.
-# Default: use views when DATABASE_URL is set (avoids full-table load on Streamlit Cloud). Set USE_NEON_VIEWS=0 to use full table.
 _use_views_env = os.getenv("USE_NEON_VIEWS", "").strip().lower()
 if _use_views_env in ("0", "false", "no"):
     USE_NEON_VIEWS = False
@@ -1940,6 +1833,20 @@ else:
     USE_NEON_VIEWS = bool(os.getenv("DATABASE_URL", "").strip())
 
 
+def _get_neon_engine():
+    """Create SQLAlchemy engine for DATABASE_URL, with sslmode=require if missing. Returns None if no URL or no sqlalchemy."""
+    url = os.getenv("DATABASE_URL")
+    if not url or not url.strip():
+        return None
+    try:
+        from sqlalchemy import create_engine
+    except ImportError:
+        return None
+    if "sslmode" not in url:
+        url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
+    return create_engine(url)
+
+
 def _load_data_from_neon_views():
     """
     Load from NEON materialized views (mv_pool_summary, mv_monthly_series) so the app
@@ -1947,23 +1854,22 @@ def _load_data_from_neon_views():
     block_date is set to first of month. Returns None if views are missing or on error.
     Raises a clear error if USE_NEON_VIEWS is set but views don't exist (caller should handle).
     """
-    url = os.getenv("DATABASE_URL")
-    if not url or not url.strip():
+    if not os.getenv("DATABASE_URL", "").strip():
         _log("[Data load] NEON views: DATABASE_URL not set, skipping")
         return None
     try:
-        from sqlalchemy import create_engine
+        import sqlalchemy
     except ImportError:
         _log("[Data load] NEON views: sqlalchemy not available")
+        return None
+    engine = _get_neon_engine()
+    if engine is None:
         return None
     views_help = (
         "Create the materialized views in NEON: open your NEON project → SQL Editor, "
         "then run the script in sql/neon_materialized_views.sql (replace 'balancer_data' with your table name if needed)."
     )
     try:
-        if "sslmode" not in url:
-            url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
-        engine = create_engine(url)
         _log("[Data load] NEON views: querying mv_pool_summary...")
         pools = pd.read_sql('SELECT * FROM mv_pool_summary', engine)
         _log("[Data load] NEON views: querying mv_monthly_series...")
@@ -1974,7 +1880,6 @@ def _load_data_from_neon_views():
                 "REFRESH MATERIALIZED VIEW mv_pool_summary; REFRESH MATERIALIZED VIEW mv_monthly_series; in NEON. "
                 + views_help
             )
-        # Merge so we have month + pool + category + metrics (match notebook: group by project_contract_address)
         pool_cols = [c for c in ["project_contract_address", "pool_symbol", "pool_category", "blockchain", "version", "is_core_pool", "gauge_address"] if c in pools.columns]
         if "project_contract_address" not in pool_cols:
             raise RuntimeError("mv_pool_summary must have column project_contract_address. " + views_help)
@@ -1984,42 +1889,36 @@ def _load_data_from_neon_views():
             df = df.drop(columns=["is_core_pool_pool"], errors="ignore")
         if "is_core_pool" not in df.columns:
             df["is_core_pool"] = 0
-        # Coerce to 0/1 so simulation mask_core (is_core_pool == 1) and incentives revenue work
         df["is_core_pool"] = pd.to_numeric(df["is_core_pool"], errors="coerce").fillna(0).astype(int).clip(0, 1)
         df["block_date"] = pd.to_datetime(df["year_month"], errors="coerce")
-        # Timezone-naive for consistent date filtering (Year/Quarter)
         try:
             if pd.api.types.is_datetime64tz_dtype(df["block_date"]):
                 df["block_date"] = df["block_date"].dt.tz_localize(None)
         except Exception:
             pass
-        # direct_incentives = bal_emited_usd (BAL emissions) — matches notebook; prefer view column, then bal_emited_usd
         if "direct_incentives" in df.columns:
             _inc_col = "direct_incentives"
         elif "bal_emited_usd" in df.columns:
             _inc_col = "bal_emited_usd"
         else:
-            _inc_col = "bribe_amount_usd"  # fallback for compatibility
+            _inc_col = "bribe_amount_usd"
         df["direct_incentives"] = pd.to_numeric(df.get(_inc_col, 0), errors="coerce").fillna(0)
         df["protocol_fee_amount_usd"] = pd.to_numeric(df.get("protocol_fee_amount_usd", 0), errors="coerce").fillna(0)
         df["dao_profit_usd"] = df["protocol_fee_amount_usd"] - df["direct_incentives"]
         df["bal_emited_votes"] = pd.to_numeric(df.get("bal_emited_votes", 0), errors="coerce").fillna(0)
         df["votes_received"] = pd.to_numeric(df.get("votes_received", 0), errors="coerce").fillna(0)
         df["pool_category"] = df["pool_category"].fillna("Undefined")
-        df["has_gauge"] = False  # views don't have gauge
+        df["has_gauge"] = False
         if "core_non_core" not in df.columns:
             df["core_non_core"] = df["is_core_pool"]
-        # Simulation expects total_protocol_fee_usd; view rows are per-month so use protocol_fee_amount_usd
         if "total_protocol_fee_usd" not in df.columns and "protocol_fee_amount_usd" in df.columns:
             df["total_protocol_fee_usd"] = df["protocol_fee_amount_usd"]
-        # Placeholders so filters and other code don't break (views are pool+month only)
         if "project_contract_address" not in df.columns:
             df["project_contract_address"] = ""
         if "gauge_address" not in df.columns:
             df["gauge_address"] = ""
         if "pool_type" not in df.columns:
             df["pool_type"] = ""
-        # Prefer pool-level gauge_address if we have it from merge (gauge_address_pool)
         if "gauge_address_pool" in df.columns:
             ga = df["gauge_address_pool"].fillna(df.get("gauge_address", "")).astype(str).str.strip()
             df["gauge_address"] = ga.where(ga != "", df.get("gauge_address", ""))
@@ -2038,18 +1937,11 @@ def _load_data_from_neon_views():
 
 def _load_data_from_neon():
     """Load main tokenomics data from NEON (or any Postgres) if DATABASE_URL is set. Returns DataFrame or None."""
-    url = os.getenv("DATABASE_URL")
-    if not url or not url.strip():
+    engine = _get_neon_engine()
+    if engine is None:
         return None
     table = NEON_TABLE_MAIN
     try:
-        from sqlalchemy import create_engine
-    except ImportError:
-        return None
-    try:
-        if "sslmode" not in url:
-            url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
-        engine = create_engine(url)
         _log(f"[Data load] NEON full table: SELECT * FROM \"{table}\" (this can be large)")
         df = pd.read_sql(f'SELECT * FROM "{table}"', engine)
         if df is not None and not df.empty:
@@ -2072,7 +1964,6 @@ def load_bal_emissions_daily(_merge_by_gauge=True):
     for c in ['start_date', 'end_date', 'blockchain', 'round_emissions_usd']:
         if c not in df.columns:
             return pd.DataFrame()
-    # Main data (Balancer-Tokenomics) uses project_contract_address from votes = gauge address; merge on gauge_address
     addr_col = 'gauge_address' if 'gauge_address' in df.columns else 'pool_address'
     if addr_col not in df.columns:
         return pd.DataFrame()
@@ -2117,28 +2008,16 @@ def _process_main_data(df):
         return df
     df = df.copy()
     if 'block_date' in df.columns:
-        # Normalize dates: convert to datetime with UTC, then extract date only (YYYY-MM-DD)
-        # This handles mixed formats and timezones consistently (same as user did in notebook)
-        # Store original info for debugging
         original_non_null = df['block_date'].notna().sum()
         original_dtype = df['block_date'].dtype
         
-        # Step 1: Convert to datetime with UTC (exactly as user did in notebook)
-        # Using errors='coerce' means invalid dates become NaT
         df['block_date'] = pd.to_datetime(df['block_date'], format='mixed', utc=True, errors='coerce')
         
-        # Step 2: Normalize to date only (removes time and timezone, but keeps as datetime)
-        # Only process non-NaT values to avoid issues
         mask_valid = df['block_date'].notna()
         if mask_valid.any():
-            # Use normalize() instead of .dt.date to keep it as datetime
-            # normalize() sets time to 00:00:00 and removes timezone, keeping datetime type
             df.loc[mask_valid, 'block_date'] = pd.to_datetime(df.loc[mask_valid, 'block_date']).dt.normalize()
         
-        # Final check
         final_non_null = df['block_date'].notna().sum()
-        # Note: If dates were lost, it means some values in CSV couldn't be parsed
-        # This is expected if CSV has invalid date formats, but shouldn't happen if all are valid
     numeric_cols = [
         'swap_amount_usd', 'tvl_usd', 'tvl_eth',
         'total_protocol_fee_usd', 'protocol_fee_amount_usd',
@@ -2149,7 +2028,6 @@ def _process_main_data(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     df['is_core_pool'] = pd.to_numeric(df.get('core_non_core', 0), errors='coerce').fillna(0).astype(int)
-    # direct_incentives: prefer bal_emited_usd (BAL emissions, matches notebook) over bribe_amount_usd (bribes)
     has_inc = 'direct_incentives' in df.columns and pd.to_numeric(df['direct_incentives'], errors='coerce').fillna(0).gt(0).any()
     has_bal_usd = 'bal_emited_usd' in df.columns and pd.to_numeric(df['bal_emited_usd'], errors='coerce').fillna(0).gt(0).any()
     has_bribes = 'bribe_amount_usd' in df.columns and pd.to_numeric(df['bribe_amount_usd'], errors='coerce').fillna(0).gt(0).any()
@@ -2183,7 +2061,6 @@ def _process_main_data(df):
     df['dao_profit_usd'] = rev - inc
     df['emissions_roi'] = np.where(inc > 0, rev / inc, 0.0)
     
-    # Add has_gauge column (True if gauge_address exists and is not empty/nan)
     if 'gauge_address' in df.columns:
         df['has_gauge'] = (
             df['gauge_address'].notna() & 
@@ -2213,7 +2090,6 @@ def _process_merged_data(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # direct_incentives: prefer bal_emited_usd (BAL emissions) over bribe_amount_usd (matches notebook)
     if 'direct_incentives' not in df.columns:
         if 'bal_emited_usd' in df.columns:
             df['direct_incentives'] = pd.to_numeric(df['bal_emited_usd'], errors='coerce').fillna(0)
@@ -2231,7 +2107,6 @@ def _process_merged_data(df):
     df['dao_profit_usd'] = rev - inc
     df['emissions_roi'] = np.where(inc > 0, rev / inc, 0.0)
     
-    # Add has_gauge column (True if gauge_address exists and is not empty/nan)
     if 'gauge_address' in df.columns:
         df['has_gauge'] = (
             df['gauge_address'].notna() & 
@@ -2292,7 +2167,6 @@ def load_data():
     _log(f"[Data load] USE_NEON_VIEWS={USE_NEON_VIEWS!r}, DATABASE_URL set={database_url_set}")
     _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "", 0, "loading...")
     try:
-        # 1a) NEON materialized views (low memory: only pool summary + monthly series)
         if USE_NEON_VIEWS:
             _log("[Data load] Attempting NEON materialized views (mv_pool_summary, mv_monthly_series)")
             df = _load_data_from_neon_views()
@@ -2302,7 +2176,6 @@ def load_data():
                 _set_data_source("NEON (views)")
                 _set_data_load_debug(USE_NEON_VIEWS, database_url_set, "NEON (views)", n, "")
                 return _process_main_data(df)
-        # 1b) NEON/Postgres full table (or when views not used)
         _log(f"[Data load] Attempting NEON full table ({NEON_TABLE_MAIN!r})")
         df = _load_data_from_neon()
         if df is not None and not df.empty:
@@ -2314,7 +2187,6 @@ def load_data():
 
         cwd = os.getcwd()
         possible_data_dirs = _get_possible_data_dirs()
-        # 2) Prefer local Balancer-All-Tokenomics.csv so Total BAL Emitted (and other metrics) match notebook / CSV totals
         for data_dir in possible_data_dirs:
             path = os.path.join(os.path.abspath(data_dir), MAIN_DATA_FILENAME)
             if os.path.exists(path) and os.path.getsize(path) > 100:
@@ -2390,8 +2262,15 @@ def load_data():
         return pd.DataFrame()
 
 
+def _show_data_debug_enabled():
+    """Show data source/debug UI only when SHOW_DATA_DEBUG=1 (or true/yes). Default: hidden."""
+    return os.getenv("SHOW_DATA_DEBUG", "").strip().lower() in ("1", "true", "yes")
+
+
 def show_data_source_badge():
-    """Show in the sidebar where the main tokenomics data was loaded from (NEON, Local CSV, Supabase)."""
+    """Show in the sidebar where the main tokenomics data was loaded from (NEON, Local CSV, Supabase). Only if SHOW_DATA_DEBUG=1."""
+    if not _show_data_debug_enabled():
+        return
     source = st.session_state.get("tokenomics_data_source")
     if not source:
         return
@@ -2402,7 +2281,9 @@ def show_data_source_badge():
 
 
 def show_data_source_inline():
-    """Show compact data source + row count in main content (for visibility without opening sidebar)."""
+    """Show compact data source + row count in main content. Only if SHOW_DATA_DEBUG=1."""
+    if not _show_data_debug_enabled():
+        return
     source = st.session_state.get("tokenomics_data_source")
     info = st.session_state.get("data_load_debug")
     if not source and not info:
@@ -2413,7 +2294,9 @@ def show_data_source_inline():
 
 
 def show_data_load_debug():
-    """Show data-load debug info in sidebar (for Streamlit Cloud: confirm USE_NEON_VIEWS and which source was used)."""
+    """Show data-load debug info in sidebar. Only if SHOW_DATA_DEBUG=1."""
+    if not _show_data_debug_enabled():
+        return
     info = st.session_state.get("data_load_debug")
     if not info:
         return
@@ -2443,10 +2326,8 @@ def classify_pools(df, pool_key='project_contract_address', min_records=4):
     required = ['dao_profit_usd', 'protocol_fee_amount_usd', 'direct_incentives', 'emissions_roi', 'is_core_pool']
     if not all(c in df.columns for c in required):
         return df
-    # Use project_contract_address when available (matches notebook); fallback to pool_symbol
     if pool_key not in df.columns or df[pool_key].isna().all() or (df[pool_key].astype(str).str.strip() == '').all():
         pool_key = 'pool_symbol'
-    # avg_roi = mean of daily emissions_roi (per veBAL doc), clipped 0-100
     emissions_clipped = np.clip(df['emissions_roi'].fillna(0), 0.0, 100.0)
     df_temp = df.copy()
     df_temp['_emissions_roi_clipped'] = emissions_clipped
@@ -2458,14 +2339,11 @@ def classify_pools(df, pool_key='project_contract_address', min_records=4):
         'is_core_pool': 'max'
     }).reset_index()
     pool_agg.columns = [pool_key, 'total_dao_profit', 'total_revenue', 'total_incentives', 'avg_roi', 'is_core_pool']
-    # min_records filter (notebook: exclude pools with < 4 records)
     pool_counts = df_temp.groupby(pool_key).size()
     pool_agg['_n_records'] = pool_agg[pool_key].map(pool_counts).fillna(0).astype(int)
     pool_agg = pool_agg[pool_agg['_n_records'] >= min_records].copy()
-    # Exclude dead pools (zero revenue + zero incentives) - notebook excludes these
     dead_mask = (pool_agg['total_revenue'] == 0) & (pool_agg['total_incentives'] == 0)
     pool_agg = pool_agg[~dead_mask].copy()
-    # aggregate_roi = total_rev / total_incentives (used for classification when incentives > 0)
     pool_agg['aggregate_roi'] = np.where(
         pool_agg['total_incentives'] > 0,
         np.clip(pool_agg['total_revenue'] / pool_agg['total_incentives'], 0.0, 100.0),
@@ -2487,7 +2365,6 @@ def classify_pools(df, pool_key='project_contract_address', min_records=4):
         is_core_pool = int(row.get('is_core_pool', 0) or 0)
         incentive_dependency = row.get('incentive_dependency', 1.0) or 1.0
 
-        # No incentives
         if total_incentives == 0:
             if total_revenue > 15000:
                 return 'Legitimate'
@@ -2495,7 +2372,6 @@ def classify_pools(df, pool_key='project_contract_address', min_records=4):
                 return 'Sustainable'
             return 'Undefined'
 
-        # Clearly mercenary
         if total_revenue == 0:
             return 'Mercenary'
         if roi < 0.5:
@@ -2507,13 +2383,11 @@ def classify_pools(df, pool_key='project_contract_address', min_records=4):
         if total_revenue < 5000:
             return 'Mercenary'
 
-        # Legitimate (top pools)
         if total_dao_profit > 5000 and roi > 1.5 and incentive_dependency < 0.5:
             return 'Legitimate'
         if is_core_pool == 1 and roi > 1.2 and total_dao_profit > 0:
             return 'Legitimate'
 
-        # Sustainable (positive but not elite) — include roi in [0.5, 1.0) to avoid Undefined
         if total_dao_profit >= 0 and roi >= 0.5:
             return 'Sustainable'
 
@@ -2527,7 +2401,6 @@ def classify_pools(df, pool_key='project_contract_address', min_records=4):
         on=pool_key,
         how='left'
     )
-    # Exclude dead and low-record pools from analysis (match notebook)
     valid_pools = set(pool_agg[pool_key].dropna().astype(str).str.strip())
     valid_pools.discard('')
     if valid_pools:
@@ -2566,15 +2439,12 @@ def debug_pool_classification(df):
         agg['is_core_pool'] = agg[pool_key].map(core_max).fillna(0).astype(int)
     else:
         agg['is_core_pool'] = 0
-    # Dead pools (should never appear)
     dead = agg[(agg['total_revenue'] == 0) & (agg['total_incentives'] == 0)].copy()
-    # Pool category from current data
     if 'pool_category' in df.columns:
         cat_first = df.groupby(pool_key)['pool_category'].first()
         agg['current_category'] = agg[pool_key].map(cat_first)
     else:
         agg['current_category'] = 'N/A'
-    # Compute expected category (notebook logic)
     def _classify(r):
         ti, tr, dp = r['total_incentives'], r['total_revenue'], r['total_dao_profit']
         roi = r['aggregate_roi'] if ti > 0 else r['avg_roi']
@@ -2620,7 +2490,6 @@ def get_votes_by_pool_from_main_df(df):
     df = df.copy()
     df['votes_received'] = pd.to_numeric(df['votes_received'], errors='coerce').fillna(0)
     
-    # Prepare aggregation dict - include gauge_address if available
     agg_dict = {
         'votes_received': ('votes_received', 'sum'),
         'project_contract_address': ('project_contract_address', 'first'),
@@ -2637,7 +2506,6 @@ def get_votes_by_pool_from_main_df(df):
     agg['symbol_clean'] = agg['pool_symbol'].fillna('').astype(str)
     agg['symbol'] = agg['pool_symbol']
     
-    # If gauge_address was not in original df, use project_contract_address as fallback
     if 'gauge_address' not in agg.columns:
         agg['gauge_address'] = agg['project_contract_address'].fillna('').astype(str)
     else:
@@ -2744,7 +2612,6 @@ def load_vebal_votes_data():
             except Exception:
                 continue
 
-        # Derive from merged (single source)
         df = load_data()
         if df.empty or 'votes_received' not in df.columns or 'pool_symbol' not in df.columns:
             return pd.DataFrame()
@@ -2770,7 +2637,6 @@ def load_vebal_votes_data():
 def load_bribes_data():
     """Load bribes and gauges enriched data from Supabase Storage or local filesystem"""
     try:
-        # First, try to download from Supabase (try different possible filenames)
         filenames = [
             'Balancer_Bribes_Gauges_enriched.csv',
             'balancer_bribes_gauges_enriched.csv',
@@ -2784,16 +2650,13 @@ def load_bribes_data():
                 break
         
         if df_bribes is not None and not df_bribes.empty:
-            # Process the data
             date_cols = ['date', 'block_date', 'timestamp', 'week', 'period']
             for col in date_cols:
                 if col in df_bribes.columns:
-                    # Clean date strings: remove time and UTC suffix, keep only YYYY-MM-DD
                     df_bribes[col] = df_bribes[col].astype(str).str.replace(r'\s+\d{2}:\d{2}:\d{2}\.\d+\s+UTC', '', regex=True)
                     df_bribes[col] = df_bribes[col].astype(str).str.replace(r'\s+\d{2}:\d{2}:\d{2}\s+UTC', '', regex=True)
                     df_bribes[col] = df_bribes[col].astype(str).str.replace(r'\s+UTC', '', regex=True)
                     df_bribes[col] = df_bribes[col].astype(str).str.strip()
-                    # Convert to datetime
                     df_bribes[col] = pd.to_datetime(df_bribes[col], errors='coerce')
             
             numeric_cols = [
@@ -2809,20 +2672,17 @@ def load_bribes_data():
             
             return df_bribes
         
-        # Fallback to local filesystem
-        # Get current working directory (where streamlit is run from)
         cwd = os.getcwd()
         
-        # Try different possible file names and paths (in order of likelihood)
         file_paths = [
-            os.path.abspath(os.path.join(cwd, '..', 'data', 'Balancer_Bribes_Gauges_enriched.csv')),  # ../data/file.csv
+            os.path.abspath(os.path.join(cwd, '..', 'data', 'Balancer_Bribes_Gauges_enriched.csv')),
             os.path.abspath(os.path.join(cwd, '..', 'data', 'balancer_bribes_gauges_enriched.csv')),
             os.path.abspath(os.path.join(cwd, '..', 'data', 'Balancer_Bribes_Gauges.csv')),
-            os.path.abspath(os.path.join(cwd, 'data', 'Balancer_Bribes_Gauges_enriched.csv')),  # data/file.csv
+            os.path.abspath(os.path.join(cwd, 'data', 'Balancer_Bribes_Gauges_enriched.csv')),
             os.path.abspath(os.path.join(cwd, 'data', 'balancer_bribes_gauges_enriched.csv')),
-            'data/Balancer_Bribes_Gauges_enriched.csv',  # relative
+            'data/Balancer_Bribes_Gauges_enriched.csv',
             'data/balancer_bribes_gauges_enriched.csv',
-            'Balancer_Bribes_Gauges_enriched.csv'  # current dir
+            'Balancer_Bribes_Gauges_enriched.csv'
         ]
         
         df_bribes = None
@@ -2839,19 +2699,15 @@ def load_bribes_data():
         if df_bribes is None or df_bribes.empty:
             return pd.DataFrame()
         
-        # Convert date columns if they exist
         date_cols = ['date', 'block_date', 'timestamp', 'week', 'period']
         for col in date_cols:
             if col in df_bribes.columns:
-                # Clean date strings: remove time and UTC suffix, keep only YYYY-MM-DD
                 df_bribes[col] = df_bribes[col].astype(str).str.replace(r'\s+\d{2}:\d{2}:\d{2}\.\d+\s+UTC', '', regex=True)
                 df_bribes[col] = df_bribes[col].astype(str).str.replace(r'\s+\d{2}:\d{2}:\d{2}\s+UTC', '', regex=True)
                 df_bribes[col] = df_bribes[col].astype(str).str.replace(r'\s+UTC', '', regex=True)
                 df_bribes[col] = df_bribes[col].astype(str).str.strip()
-                # Convert to datetime
                 df_bribes[col] = pd.to_datetime(df_bribes[col], errors='coerce')
         
-        # Convert numeric columns
         numeric_cols = [
             'bribe_amount_usd', 'bribe_amount', 'total_bribes_usd',
             'votes_received', 'bal_received', 'bal_emitted',
@@ -2949,7 +2805,6 @@ def run_simulation_sidebar(df):
     )
     df_sim = df.copy()
 
-    # Base BAL/week from data: total BAL emitted in selected period ÷ number of weeks
     if not pd.api.types.is_datetime64_any_dtype(df_sim['block_date']):
         df_sim['block_date'] = pd.to_datetime(df_sim['block_date'], errors='coerce')
     mask_valid_date = df_sim['block_date'].notna()
@@ -2969,7 +2824,6 @@ def run_simulation_sidebar(df):
     mask_core = df_sim['is_core_pool'] == 1
     mask_noncore = df_sim['is_core_pool'] == 0
 
-    # Use total_protocol_fee_usd if present (full data), else protocol_fee_amount_usd (view data)
     rev_col = "total_protocol_fee_usd" if "total_protocol_fee_usd" in df_sim.columns else "protocol_fee_amount_usd"
     protocol_fee = pd.to_numeric(df_sim[rev_col], errors="coerce").fillna(0)
     df_sim['sim_protocol_fee'] = protocol_fee * (protocol_fee_pct / 100)
@@ -2996,12 +2850,10 @@ def run_simulation_sidebar(df):
         df_sim.loc[mask_core, 'remaining_revenue'] * (c_incentives_pct / 100)
     )
     
-    # Link BAL emission to all revenue: scale by emission scenario (effective ÷ base from data)
     df_sim['sim_dao_revenue'] = df_sim['sim_dao_revenue'] * emission_factor
     df_sim['sim_holders_revenue'] = df_sim['sim_holders_revenue'] * emission_factor
     df_sim['sim_incentives_revenue'] = df_sim['sim_incentives_revenue'] * emission_factor
     
-    # Vote share and sim_bal_emitted (effective_emissions already computed above)
     weekly_votes = df_sim.groupby('week')['votes_received'].sum()
     df_sim['weekly_total_votes'] = df_sim['week'].map(weekly_votes)
     df_sim['vote_share'] = np.where(
@@ -3011,8 +2863,6 @@ def run_simulation_sidebar(df):
     )
     df_sim['sim_bal_emitted'] = df_sim['vote_share'] * effective_emissions
 
-    # Scale so sum(sim_bal_emitted) = total_bal_from_data * emission_factor (matches soma bruta when factor=1)
-    # Rows with 0 votes get 0 from vote_share, so raw sum can be lower; scaling fixes the metric.
     sim_sum = df_sim['sim_bal_emitted'].sum()
     target_total = total_bal_from_data * emission_factor
     if sim_sum > 0 and abs(sim_sum - target_total) > 0.01:
@@ -3107,7 +2957,6 @@ def calculate_emission_reduction_impact(df, reduction_factor, core_only=False, r
     """
     df_scenario = df.copy()
     
-    # Ensure is_core_pool exists and is 0/1 (data may have core_non_core as bool or string)
     if 'is_core_pool' not in df_scenario.columns and 'core_non_core' in df_scenario.columns:
         df_scenario['is_core_pool'] = _normalize_is_core_pool(df_scenario['core_non_core'])
     elif 'is_core_pool' in df_scenario.columns:
@@ -3115,39 +2964,27 @@ def calculate_emission_reduction_impact(df, reduction_factor, core_only=False, r
     else:
         df_scenario['is_core_pool'] = 0
     
-    # Determine which pools get emissions
     if core_only:
-        # Only core pools get emissions, non-core get 0
         emission_mask = (df_scenario['is_core_pool'] == 1)
     else:
-        # All pools get emissions (reduced by factor)
         emission_mask = pd.Series([True] * len(df_scenario), index=df_scenario.index)
     
-    # Calculate reduced BAL emissions (use bal_emited_votes from data, same as home page)
     bal_col = df_scenario['bal_emited_votes'] if 'bal_emited_votes' in df_scenario.columns else pd.Series(0, index=df_scenario.index)
     bal = pd.to_numeric(bal_col, errors='coerce').fillna(0)
     df_scenario['reduced_bal_emitted'] = (bal.where(emission_mask, 0) * reduction_factor)
     
-    # Calculate reduced incentives (proportional to BAL emissions)
     if 'direct_incentives' in df_scenario.columns:
-        # For core_only mode, non-core pools get 0 incentives
-        # For normal mode, reduce incentives proportionally to BAL reduction
         if core_only:
-            # Non-core pools get 0, core pools get reduced by factor
             df_scenario['reduced_incentives'] = df_scenario['direct_incentives'].where(
                 emission_mask, 0
             ) * reduction_factor
         else:
-            # Reduce incentives proportionally to BAL reduction
             bal_reduction_ratio = df_scenario['reduced_bal_emitted'] / bal.replace(0, 1)
             bal_reduction_ratio = bal_reduction_ratio.fillna(0).replace([float('inf'), -float('inf')], 0)
             df_scenario['reduced_incentives'] = df_scenario['direct_incentives'] * bal_reduction_ratio
     else:
         df_scenario['reduced_incentives'] = 0
     
-    # Scenario revenue: when revenue_sensitivity > 0, assume revenue drops with emissions
-    # revenue_scenario = revenue_baseline * (1 - (1 - reduction_factor) * revenue_sensitivity)
-    # e.g. 50% emission cut (reduction_factor=0.5), sensitivity=0.5 → revenue * 0.75 (25% drop)
     rev_col = 'protocol_fee_amount_usd' if 'protocol_fee_amount_usd' in df_scenario.columns else 'sim_dao_revenue'
     if rev_col in df_scenario.columns:
         base_rev = pd.to_numeric(df_scenario[rev_col], errors='coerce').fillna(0)
@@ -3159,7 +2996,6 @@ def calculate_emission_reduction_impact(df, reduction_factor, core_only=False, r
     else:
         df_scenario['scenario_revenue'] = 0
     
-    # Calculate new DAO profit: scenario_revenue - reduced_incentives
     df_scenario['new_dao_profit'] = df_scenario['scenario_revenue'] - df_scenario['reduced_incentives']
     
     return df_scenario

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Main script to fetch multiple Dune queries and generate CSVs
 Also executes data collection from HiddenHand Finance
@@ -18,7 +17,7 @@ from dune_fetcher_chunked import fetch_and_save_chunked
 try:
     from dune_fetcher_chunked import fetch_and_save_with_params
 except ImportError:
-    fetch_and_save_with_params = None  # older deploy without param support
+    fetch_and_save_with_params = None  
 
 PROJECT_ROOT = Path(__file__).parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -27,7 +26,6 @@ API_KEY = os.getenv("DUNE_API_KEY")
 if not API_KEY:
     raise ValueError("DUNE_API_KEY not found in .env file")
 
-# Default date range - can be overridden via environment variables or command line
 DEFAULT_START_DATE = os.getenv("START_DATE", "2024-01-01")
 DEFAULT_END_DATE = os.getenv("END_DATE", datetime.now().strftime("%Y-%m-%d"))
 
@@ -37,18 +35,16 @@ QUERIES = {
     6608301: "Votes_Emissions.csv",
 }
 
-# Query 6644710 is the large one that needs chunking
 CHUNKED_QUERY_ID = 6644710
-BRIBES_QUERY_ID = 6583834   # Uses start_date param; gauge/blockchain filled by enrich_bribes_with_fsn
-VOTES_EMISSIONS_QUERY_ID = 6608301  # Uses start_date + end_date (same logic as veBAL)
-CHUNK_DAYS = 45  # Fetch 45 days at a time (smaller chunks reduce timeouts)
+BRIBES_QUERY_ID = 6583834   
+VOTES_EMISSIONS_QUERY_ID = 6608301  
+CHUNK_DAYS = 45 
 
 def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_with_existing: bool = False):
     """
     Processes all Dune queries.
     When merge_vebal_with_existing=True (incremental run), new veBAL chunk is merged with existing veBAL.csv.
     """
-    # Use provided dates or defaults
     start_date = start_date or DEFAULT_START_DATE
     end_date = end_date or DEFAULT_END_DATE
     
@@ -61,7 +57,6 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
     results = []
     
     for query_id, output_file in QUERIES.items():
-        # veBAL: chunked fetch with date range; merge with existing when incremental
         if query_id == CHUNKED_QUERY_ID:
             success, rows, path = fetch_and_save_chunked(
                 api_key=API_KEY,
@@ -73,7 +68,6 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
                 chunk_days=CHUNK_DAYS,
                 merge_with_existing=merge_vebal_with_existing,
             )
-        # Bribes: single run with start_date; merge with existing when incremental
         elif query_id == BRIBES_QUERY_ID and fetch_and_save_with_params is not None:
             success, rows, path = fetch_and_save_with_params(
                 api_key=API_KEY,
@@ -84,7 +78,6 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
                 merge_with_existing=merge_vebal_with_existing,
                 merge_key_columns=["day", "proposal_hash"],
             )
-        # Votes_Emissions: single run with start_date + end_date; merge when incremental
         elif query_id == VOTES_EMISSIONS_QUERY_ID and fetch_and_save_with_params is not None:
             success, rows, path = fetch_and_save_with_params(
                 api_key=API_KEY,
@@ -96,7 +89,6 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
                 merge_key_columns=["day", "gauge_address"],
             )
         else:
-            # Fallback: no params (legacy)
             success, rows, path = fetch_and_save(
                 api_key=API_KEY,
                 query_id=query_id,
@@ -111,8 +103,6 @@ def run_dune_queries(start_date: str = None, end_date: str = None, merge_vebal_w
             'rows': rows,
             'path': path
         })
-    
-    # Final summary
     print("=" * 60)
     print("Execution Summary - Dune")
     print("=" * 60)
@@ -215,7 +205,6 @@ def run_test_incremental():
     print("Test incremental dates (no Dune fetch)")
     print("=" * 60)
 
-    # Last date per source
     per_source = get_last_date_per_source()
     print("\n📅 Last date in each data source (used for start_date = last + 1):\n")
     max_label = max(len(k) for k in per_source) if per_source else 20
@@ -223,7 +212,6 @@ def run_test_incremental():
         val = last if last else "(no data or file missing)"
         print(f"  {source:<{max_label}}  →  {val}")
 
-    # Which source drives incremental: NEON first, then local tokenomics CSV
     start_date, end_date, last_used = get_incremental_date_range(default_start=DEFAULT_START_DATE)
     print("\n📅 Incremental date range (what the pipeline would use):\n")
     if last_used:
@@ -267,7 +255,6 @@ def get_date_range_for_run(start_date=None, end_date=None):
         return start_date, end_date or datetime.now().strftime("%Y-%m-%d"), False
     if end_date is not None:
         return start_date or DEFAULT_START_DATE, end_date, False
-    # No dates given: use incremental (last date in data + 1 → today)
     use_incremental = os.getenv("INCREMENTAL", "1").strip().lower() in ("1", "true", "yes")
     if use_incremental:
         sys.path.insert(0, str(SCRIPT_DIR))
@@ -281,7 +268,6 @@ def get_date_range_for_run(start_date=None, end_date=None):
 def main():
     """Main function that processes all data sources"""
     start_date, end_date = parse_args()
-    # Resolve date range (incremental: from day after last record to today when no dates given)
     start_date, end_date, is_incremental = get_date_range_for_run(start_date, end_date)
 
     if len(sys.argv) > 1:
@@ -339,16 +325,14 @@ def main():
             print("  python main.py --dune-only --start-date 2024-01-01 --end-date 2026-02-08")
             return
     
-    # Run all steps (merge new veBAL with existing when incremental)
     run_dune_queries(start_date, end_date, merge_vebal_with_existing=is_incremental)
     run_hiddenhand()
-    run_merge_bribes()  # Merge Dune Bribes + HiddenHand → Bribes_enriched
-    run_enrich_bribes_with_fsn()  # Enrich Bribes_enriched with FSN data
+    run_merge_bribes()
+    run_enrich_bribes_with_fsn()  
     run_add_gauge_address()
     run_merge_votes_bribes()
     run_classify_core_pools()
     run_create_final_dataset()
-    # Optional: upload to NEON so the app can load from DB (no large CSV on Supabase)
     if os.getenv("DATABASE_URL"):
         run_upload_to_neon()
     else:

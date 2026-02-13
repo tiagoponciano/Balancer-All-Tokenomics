@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to enrich Bribes_enriched.csv with missing blockchain and gauge_address from FSN_data.csv
 
@@ -58,12 +57,9 @@ def enrich_bribes_with_fsn():
     print(f"   ✓ Bribes_enriched: {len(bribes_df)} records")
     print(f"   ✓ FSN_data: {len(fsn_df)} records")
     
-    # 1. Create lookups from FSN_data
     print("\n1. Creating lookup indexes from FSN_data...")
     
-    # pool_to_gauge: {pool_42: [records]}
     pool_to_gauge = {}
-    # gauge_to_pool: {gauge_address: record}
     gauge_to_pool = {}
     
     for _, row in fsn_df.iterrows():
@@ -80,18 +76,13 @@ def enrich_bribes_with_fsn():
         if pd.notna(gauge_id):
             g_addr = normalize_address(gauge_id)
             gauge_to_pool[g_addr] = {'poolId': pool_id, 'chain': chain, 'status': status, 'id': gauge_id}
-
-    # 2. Fill missing data (with expansion support)
     print("\n2. Filling missing data and handling multiple gauges...")
     
     filled_count = 0
     
-    # Flag to track if we expanded this row
     bribes_df['is_derived_gauge'] = False
-    # Preserve original gauge if we later replace with a list of candidates
     if 'gauge_address_original' not in bribes_df.columns:
         bribes_df['gauge_address_original'] = bribes_df.get('gauge_address')
-    # Add a temporary unique ID to track expansions
     bribes_df['temp_row_id'] = range(len(bribes_df))
     
     for idx, row in bribes_df.iterrows():
@@ -107,13 +98,11 @@ def enrich_bribes_with_fsn():
         elif pd.notna(row.get('derived_pool_address')) and row.get('derived_pool_address') != '':
             p42 = extract_base_address(row.get('derived_pool_address'))
         
-        # Scenario A: We have a gauge address. Verify/Fill details.
         if pd.notna(gauge_addr) and gauge_addr != '':
             g_norm = normalize_address(gauge_addr)
             if g_norm in gauge_to_pool:
                 match = gauge_to_pool[g_norm]
                 
-                # Apply updates in place
                 updated = False
                 if pd.isna(pool_id) or pool_id == '':
                     bribes_df.at[idx, 'pool_id'] = match['poolId']
@@ -123,8 +112,6 @@ def enrich_bribes_with_fsn():
                     updated = True
                 if updated:
                     filled_count += 1
-            # We still want to check if this pool has multiple gauges
-            # so we can store the candidate list.
             if not p42 and match and pd.notna(match.get('poolId')):
                 p42 = extract_base_address(match.get('poolId'))
             
@@ -132,7 +119,6 @@ def enrich_bribes_with_fsn():
             matches = pool_to_gauge[p42]
 
             if len(matches) == 1:
-                # Single match: Update in place (only if missing)
                 match = matches[0]
                 if pd.isna(gauge_addr) or gauge_addr == '':
                     bribes_df.at[idx, 'gauge_address'] = match['id']
@@ -143,11 +129,8 @@ def enrich_bribes_with_fsn():
                 filled_count += 1
 
             else:
-                # Multiple matches: store candidate gauges as a list-like JSON string
                 gauge_candidates = [m['id'] for m in matches if pd.notna(m.get('id'))]
                 status_candidates = [m.get('status', 'UNKNOWN') for m in matches]
-
-                # Preserve original gauge in case it helps resolve later
                 bribes_df.at[idx, 'gauge_address_original'] = gauge_addr
                 bribes_df.at[idx, 'gauge_address'] = json.dumps(gauge_candidates)
                 bribes_df.at[idx, 'gauge_status'] = json.dumps(status_candidates)
@@ -161,11 +144,8 @@ def enrich_bribes_with_fsn():
 
     print(f"   ✓ Performed {filled_count} data fills/corrections (including expansions)")
     
-    # Ensure pool_42 exists for downstream processing
     print("   + Updating/Creating pool_42 column...")
     bribes_df['pool_42'] = bribes_df['pool_id'].apply(extract_base_address)
-    
-    # 3. Save enriched file
     bribes_df.to_csv(OUTPUT_FILE, index=False)
     print(f"   ✓ Saved to {OUTPUT_FILE}")
     

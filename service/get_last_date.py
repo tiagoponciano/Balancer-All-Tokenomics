@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Get the latest block_date from existing tokenomics data (NEON or local CSV).
 Used for incremental monthly runs: fetch only from (last_date + 1) to today.
@@ -32,7 +31,6 @@ def get_last_block_date_from_neon():
             url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
         engine = create_engine(url)
         with engine.connect() as conn:
-            # Use quoted identifier for case-sensitive table names
             row = conn.execute(text(f'SELECT MAX(block_date) AS d FROM "{TABLE_MAIN}"')).fetchone()
         if row and row[0] is not None:
             d = row[0]
@@ -121,7 +119,6 @@ def get_last_date_per_source():
     Keys: source name, values: last date YYYY-MM-DD or None if missing/empty.
     """
     out = {}
-    # Main tokenomics (used for incremental start_date)
     last = get_last_block_date_from_neon()
     if last:
         out["NEON (table: " + TABLE_MAIN + ")"] = last

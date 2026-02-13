@@ -6,13 +6,11 @@ import numpy as np
 
 st.set_page_config(page_title="Weekly Analysis", layout="wide", page_icon="📅")
 
-# Check authentication
 if not utils.check_authentication():
     st.stop()
 
 utils.inject_css()
 
-# Script para aplicar IDs específicos aos botões
 import streamlit.components.v1 as components
 
 components.html("""
@@ -52,7 +50,6 @@ function applyButtonIds() {
                 
                 const textLower = text.toLowerCase();
                 
-                // Aplica IDs que começam com os prefixos corretos
                 if (text === 'V2' || textLower === 'v2') {
                     if (!button.id || !button.id.startsWith('btn_v2_')) {
                         button.id = 'btn_v2_version_filter';
@@ -95,7 +92,6 @@ function applyButtonIds() {
                         button.classList.add('performance-button-fallback');
                         button.setAttribute('data-button-type', 'toggle');
                         
-                        // Apply all inline styles directly (maximum priority)
                         const styles = {
                             'width': 'auto',
                             'min-width': '100px',
@@ -126,14 +122,12 @@ function applyButtonIds() {
     });
 }
 
-// Executa imediatamente e após delays
 applyButtonIds();
 setTimeout(applyButtonIds, 100);
 setTimeout(applyButtonIds, 500);
 setTimeout(applyButtonIds, 1000);
 setInterval(applyButtonIds, 2000);
 
-// Observa mudanças no DOM
 if (window.MutationObserver) {
     const observer = new MutationObserver(() => {
         setTimeout(applyButtonIds, 100);
@@ -152,51 +146,41 @@ if df.empty:
     st.stop()
 
 if 'pool_filter_mode_weekly' not in st.session_state:
-    st.session_state.pool_filter_mode_weekly = 'all'  # Default: show all pools
+    st.session_state.pool_filter_mode_weekly = 'all'
 
 if 'version_filter_weekly' not in st.session_state:
-    st.session_state.version_filter_weekly = 'all'  # Default: show all versions
+    st.session_state.version_filter_weekly = 'all'
 
 if 'gauge_filter_weekly' not in st.session_state:
-    st.session_state.gauge_filter_weekly = 'all'  # Default: show all pools
+    st.session_state.gauge_filter_weekly = 'all'
 
-# Version filter at the top of sidebar
 utils.show_version_filter('version_filter_weekly')
 
-# Gauge filter (Gauge / No Gauge)
 utils.show_gauge_filter('gauge_filter_weekly')
 
-# Pool filters at the top of sidebar (FIRST - before any other sidebar content)
 utils.show_pool_filters('pool_filter_mode_weekly')
 
-# Date filter: Year + Quarter (using dynamic filters)
 df = utils.show_date_filter_sidebar(df, key_prefix="date_filter_weekly")
 
-# Apply version filter
 df = utils.apply_version_filter(df, 'version_filter_weekly')
 
-# Apply gauge filter
 df = utils.apply_gauge_filter(df, 'gauge_filter_weekly')
 
 if df.empty:
     st.warning("No data in selected period. Adjust Year/Quarter or select «All».")
 
-# Don't run simulation sidebar - we use bal_emited_votes directly from data (same as emission_impact page)
 df_sim = df.copy()
 
-# Ensure block_date is datetime (needed for temporal charts)
 if 'block_date' in df_sim.columns:
     if not pd.api.types.is_datetime64_any_dtype(df_sim['block_date']):
         df_sim['block_date'] = pd.to_datetime(df_sim['block_date'], errors='coerce')
 
-# Ensure we have bal_emited_votes (same column used in home page)
 if 'bal_emited_votes' not in df_sim.columns:
     df_sim['bal_emited_votes'] = 0
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📉 Emission Reduction Scenario")
 
-# Custom reduction percentage input (number input for direct value entry)
 reduction_pct = st.sidebar.number_input(
     "BAL Emission Reduction (%)",
     min_value=0.0,
@@ -206,16 +190,14 @@ reduction_pct = st.sidebar.number_input(
     help="Enter the percentage reduction in BAL emissions (e.g., 50 means 50% reduction, keeping 50% of emissions). Start with 0 for baseline."
 )
 
-reduction_factor = (100 - reduction_pct) / 100  # Convert to factor (50% reduction = 0.5 factor)
+reduction_factor = (100 - reduction_pct) / 100
 
-# Toggle for core pools only
 core_only = st.sidebar.checkbox(
     "Allow emissions only for Core Pools",
     value=False,
     help="If enabled, only core pools will receive emissions. Non-core pools will have zero emissions."
 )
 
-# Page Header with logout button
 col_title, col_logout = st.columns([1, 0.1])
 with col_title:
     st.markdown('<div class="page-title">Weekly Analysis</div>', unsafe_allow_html=True)
@@ -225,19 +207,15 @@ with col_logout:
 
 st.markdown("---")
 
-# Filter data based on mode
 if st.session_state.pool_filter_mode_weekly == 'top20':
-    # Get top 20 pools
     top_pools = utils.get_top_pools(df, n=20)
     top_pools_list = [str(p) for p in top_pools]
     df_display = df_sim[df_sim['pool_symbol'].isin(top_pools_list)].copy()
 elif st.session_state.pool_filter_mode_weekly == 'worst20':
-    # Get worst 20 pools
     worst_pools = utils.get_worst_pools(df, n=20)
     worst_pools_list = [str(p) for p in worst_pools]
     df_display = df_sim[df_sim['pool_symbol'].isin(worst_pools_list)].copy()
 else:
-    # 'all' mode - show everything
     df_display = df_sim.copy()
 
 if 'pool_category' not in df_display.columns:
@@ -247,18 +225,15 @@ else:
 if 'direct_incentives' not in df_display.columns:
     df_display['direct_incentives'] = 0.0
 
-# Ensure block_date is datetime before using .dt accessor
 if 'block_date' in df_display.columns:
     if not pd.api.types.is_datetime64_any_dtype(df_display['block_date']):
         df_display['block_date'] = pd.to_datetime(df_display['block_date'], errors='coerce')
 
-# Apply emission reduction scenario (same as emission_impact page)
 revenue_sensitivity = 1.0
 df_scenario = utils.calculate_emission_reduction_impact(
     df_display, reduction_factor, core_only=core_only, revenue_sensitivity=revenue_sensitivity
 )
 
-# Normalize pool_category to known categories
 KNOWN_CATS = ['Legitimate', 'Sustainable', 'Mercenary', 'Undefined']
 
 
@@ -273,7 +248,6 @@ df_scenario['pool_category'] = df_scenario['pool_category'].apply(_map_pool_cat)
 
 df_scenario['week'] = df_scenario['block_date'].dt.to_period('W').dt.start_time
 
-# Use scenario columns when available
 bal_col = 'reduced_bal_emitted' if 'reduced_bal_emitted' in df_scenario.columns else 'bal_emited_votes'
 inc_col = 'reduced_incentives' if 'reduced_incentives' in df_scenario.columns else 'direct_incentives'
 agg_dict = {
@@ -287,7 +261,6 @@ if 'votes_received' in df_scenario.columns:
 
 df_weekly = df_scenario.groupby(['week', 'pool_category']).agg(agg_dict).reset_index()
 
-# Rename to standard column names for rest of page
 if 'reduced_bal_emitted' in df_weekly.columns:
     df_weekly['bal_emited_votes'] = df_weekly['reduced_bal_emitted']
     df_weekly = df_weekly.drop(columns=['reduced_bal_emitted'], errors='ignore')
@@ -324,7 +297,6 @@ summary_stats.columns = ['Total BAL Emitted', 'Total USD Value', 'Weeks Active']
 summary_stats = summary_stats.reindex(KNOWN_CATS, fill_value=0).fillna(0)
 active_cats = [c for c in KNOWN_CATS if (summary_stats.loc[c, 'Total BAL Emitted'] if c in summary_stats.index else 0) > 0 or (summary_stats.loc[c, 'Total USD Value'] if c in summary_stats.index else 0) > 0]
 
-# Format monetary column for display (only categories with data)
 summary_stats_display = summary_stats.loc[active_cats].copy() if active_cats else summary_stats.copy()
 if 'Total USD Value' in summary_stats_display.columns:
     summary_stats_display['Total USD Value'] = summary_stats_display['Total USD Value'].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
@@ -338,7 +310,6 @@ st.markdown("### 📈 Weekly Trends")
 pivot_weekly = df_weekly.pivot(index='week', columns='pool_category', values='bal_emited_votes').fillna(0)
 pivot_weekly_incentives = df_weekly.pivot(index='week', columns='pool_category', values='direct_incentives').fillna(0)
 
-# Keep only categories that exist in data (order by KNOWN_CATS)
 chart_cats = [c for c in KNOWN_CATS if c in pivot_weekly.columns]
 if chart_cats:
     for c in chart_cats:
@@ -349,7 +320,6 @@ if chart_cats:
 
 colors = {'Legitimate': '#2ecc71', 'Sustainable': '#3498db', 'Mercenary': '#e74c3c', 'Undefined': '#95a5a6'}
 
-# Initialize session state for toggles
 if 'show_weekly_bal_percentage' not in st.session_state:
     st.session_state.show_weekly_bal_percentage = False
 if 'show_weekly_incentives_percentage' not in st.session_state:
@@ -358,7 +328,6 @@ if 'show_weekly_incentives_percentage' not in st.session_state:
 col_chart1, col_chart2 = st.columns(2)
 
 with col_chart1:
-    # Toggle for percentage view
     col_toggle1, _ = st.columns([1, 10])
     with col_toggle1:
         toggle_text1 = "%" if not st.session_state.show_weekly_bal_percentage else "Absolute"
@@ -369,7 +338,6 @@ with col_chart1:
     chart_title1 = "**Weekly BAL Emissions by Category**" if not st.session_state.show_weekly_bal_percentage else "**Weekly BAL Emissions by Category (%)**"
     st.markdown(chart_title1)
     
-    # Calculate percentages if toggle is on
     if st.session_state.show_weekly_bal_percentage:
         row_sums = pivot_weekly.sum(axis=1)
         pivot_weekly_pct = pivot_weekly.div(row_sums.replace(0, 1), axis=0) * 100
@@ -431,7 +399,6 @@ with col_chart1:
     st.plotly_chart(fig1, use_container_width=True, key="weekly_bal_emissions")
 
 with col_chart2:
-    # Toggle for percentage view
     col_toggle2, _ = st.columns([1, 10])
     with col_toggle2:
         toggle_text2 = "%" if not st.session_state.show_weekly_incentives_percentage else "Absolute"
@@ -442,7 +409,6 @@ with col_chart2:
     chart_title2 = "**Weekly Incentives Distribution (USD)**" if not st.session_state.show_weekly_incentives_percentage else "**Weekly Incentives Distribution (%)**"
     st.markdown(chart_title2)
     
-    # Calculate percentages if toggle is on
     if st.session_state.show_weekly_incentives_percentage:
         row_sums = pivot_weekly_incentives.sum(axis=1)
         pivot_weekly_incentives_pct = pivot_weekly_incentives.div(row_sums.replace(0, 1), axis=0) * 100
@@ -503,7 +469,6 @@ with col_chart2:
     
     st.plotly_chart(fig2, use_container_width=True, key="weekly_incentives")
 
-# Show individual pool analysis only when Top 20 or Worst 20 filter is active
 if st.session_state.pool_filter_mode_weekly in ['top20', 'worst20']:
     filtered_pools = sorted(df_display['pool_symbol'].unique())
     
@@ -541,17 +506,14 @@ st.markdown("### 📋 Weekly Distribution Table")
 display_columns = ['week', 'pool_category', 'bal_emited_votes', 'direct_incentives', 'pct_of_weekly_emissions']
 df_display_table = df_weekly[display_columns].copy()
 df_display_table.columns = ['Week', 'Category', 'BAL Emitted', 'Incentives (USD)', '% of Weekly Emissions']
-# Filter to only categories with data
 if active_cats:
     df_display_table = df_display_table[df_display_table['Category'].isin(active_cats)]
-# Sort by week and category (order by active_cats or KNOWN_CATS)
 _sort_cats = active_cats if active_cats else KNOWN_CATS
 df_display_table['_cat_order'] = df_display_table['Category'].apply(
     lambda c: _sort_cats.index(c) if c in _sort_cats else len(_sort_cats)
 )
 df_display_table = df_display_table.sort_values(['Week', '_cat_order']).drop(columns=['_cat_order'])
 
-# Format monetary and percentage columns
 if 'Incentives (USD)' in df_display_table.columns:
     df_display_table['Incentives (USD)'] = df_display_table['Incentives (USD)'].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
 if '% of Weekly Emissions' in df_display_table.columns:

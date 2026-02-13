@@ -14,9 +14,8 @@ Automated system for collecting, processing, and analyzing tokenomics data from 
 
 ## 📋 Prerequisites
 
-- Python 3.8+
+- Python 3.11+
 - Dune Analytics API Key
-- Email credentials (for automation)
 
 ## 🔧 Installation
 
@@ -31,14 +30,17 @@ pip install -r requirements.txt
 
 ## ⚙️ Configuration
 
-1. Create a `.env` file in the project root:
+1. Create a `.env` file in the project root (see `.env.example` for reference):
 
 ```env
 DUNE_API_KEY=your_dune_api_key_here
-SMTP_PORT=587
+DATABASE_URL=postgresql://...   # For NEON (optional)
+SUPABASE_URL=...               # For Supabase fallback (optional)
+SUPABASE_ANON_KEY=...
+SUPABASE_BUCKET=data
 ```
 
-2. For weekly automation, configure secrets in GitHub Actions (see GitHub Actions documentation)
+2. For monthly automation, configure GitHub Actions secrets (see below).
 
 ### Data hosting (NEON) – recommended for the Streamlit app
 
@@ -89,10 +91,25 @@ Streamlit Cloud has a ~1 GB memory limit. Loading the full dataset (100k+ rows) 
 
 #### Scheduled updates (GitHub Actions)
 
-- **1st of month, 00:00 UTC:** Full pipeline (fetch + merge + upload to NEON)
-- **1st of month, 01:00 UTC:** Refresh materialized views (1 hour later)
+Three workflows run automatically:
 
-See **[SCHEDULED_UPDATES.md](SCHEDULED_UPDATES.md)** for setup (secrets, NEON pg_cron, cron.neon.tech).
+| Workflow | Schedule | Description |
+|----------|----------|-------------|
+| **Monthly NEON Update** | 1st of month, 00:00 UTC | Incremental fetch (last date + 1 → today), merge, upload to NEON |
+| **Refresh NEON Views** | 1st of month, 01:00 UTC | Refresh materialized views (1h after data upload) |
+| **Suspend NEON Compute** | 1st of month, 09:30 UTC | Suspend NEON compute to save costs |
+
+**GitHub Actions secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Required by |
+|--------|-------------|
+| `DUNE_API_KEY` | Monthly NEON Update |
+| `DATABASE_URL` | Monthly NEON Update, Refresh NEON Views |
+| `NEON_PROJECT_ID` | Suspend NEON Compute |
+| `NEON_ENDPOINT_ID` | Suspend NEON Compute |
+| `NEON_API_KEY` | Suspend NEON Compute |
+
+See **[SCHEDULED_UPDATES.md](SCHEDULED_UPDATES.md)** for more details.
 
 #### Monthly incremental runs
 
@@ -314,13 +331,13 @@ To ensure compatibility between different address formats:
 | Script | Description |
 |--------|-------------|
 | `main.py` | Main script - orchestrates the entire pipeline |
-| `script/dune_fetcher.py` | Data collection from Dune Analytics |
-| `script/fetch_hiddenhand.py` | Data collection from HiddenHand Finance |
-| `script/merge_bribes.py` | Enriches Dune bribes with HiddenHand metadata (LEFT JOIN) |
-| `script/add_gauge_address.py` | Adds gauge_address to veBAL |
-| `script/merge_votes_bribes.py` | Votes & Bribes Merge |
-| `script/classify_core_pools.py` | Core/Non-Core pools classification |
-| `script/create_final_dataset.py` | Consolidated final dataset creation |
+| `service/dune_fetcher.py` | Data collection from Dune Analytics |
+| `service/fetch_hiddenhand.py` | Data collection from HiddenHand Finance |
+| `service/merge_bribes.py` | Enriches Dune bribes with HiddenHand metadata (LEFT JOIN) |
+| `service/add_gauge_address.py` | Adds gauge_address to veBAL |
+| `service/merge_votes_bribes.py` | Votes & Bribes Merge |
+| `service/classify_core_pools.py` | Core/Non-Core pools classification |
+| `service/create_final_dataset.py` | Consolidated final dataset creation |
 
 ## ❓ Which Dataset Should I Use?
 

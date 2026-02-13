@@ -1,4 +1,4 @@
-# Monthly data update: fetch all data and upload to NEON (append only new rows)
+# Monthly data update: fetch incremental (last date + 1 to today) and upload to NEON (append only new rows)
 # Runs on the 1st of every month at 00:00 UTC
 #
 # Required secrets (in repo Settings → Secrets and variables → Actions):
@@ -40,5 +40,5 @@ jobs:
           NEON_TABLE: balancer_data
           USE_NEON_VIEWS: "0"
           UPLOAD_APPEND: "1"
-          INCREMENTAL: "0"
+          INCREMENTAL: "1"
         run: python main.py

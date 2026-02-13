@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Upload final tokenomics CSV(s) to NEON (or any Postgres) so the Streamlit app
 can load data from the database instead of large Supabase CSVs.
@@ -19,12 +18,10 @@ from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
 
-# Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 load_dotenv(PROJECT_ROOT / ".env")
 
-# Main table: same data the app uses (Balancer-All-Tokenomics.csv)
 CSV_ALL = DATA_DIR / "Balancer-All-Tokenomics.csv"
 CSV_ORGANIZED = DATA_DIR / "Balancer-All-Tokenomics-Organized.csv"
 TABLE_MAIN = os.getenv("NEON_TABLE", "tokenomics").strip() or "tokenomics"
@@ -43,7 +40,6 @@ def get_engine():
         from sqlalchemy import create_engine
     except ImportError:
         raise ImportError("Install sqlalchemy and psycopg2-binary: pip install sqlalchemy psycopg2-binary")
-    # NEON and most Postgres need sslmode for pandas
     if "sslmode" not in url:
         url = url.rstrip("/") + ("&" if "?" in url else "?") + "sslmode=require"
     return create_engine(url)
@@ -72,7 +68,6 @@ def upload_csv_to_table(engine, csv_path: Path, table_name: str, if_exists: str 
     if df.empty:
         print(f"  ⚠️  {csv_path.name} is empty, skipping.")
         return 0
-    # Normalize dates so they round-trip
     if "block_date" in df.columns:
         df["block_date"] = pd.to_datetime(df["block_date"], errors="coerce")
 
@@ -101,7 +96,6 @@ def refresh_materialized_views(engine):
     VIEWS = ["mv_pool_summary", "mv_monthly_series", "mv_daily_series"]
     try:
         from sqlalchemy import text
-        # CONCURRENTLY must run outside a transaction; use autocommit
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             for view in VIEWS:
                 conn.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view}"))
@@ -127,7 +121,6 @@ def main(refresh_views: bool = None, append_only: bool = None):
     total += upload_csv_to_table(engine, CSV_ALL, TABLE_MAIN, append_only=_append)
     if not _append:
         upload_csv_to_table(engine, CSV_ORGANIZED, TABLE_ORGANIZED)
-    # Refresh materialized views if USE_NEON_VIEWS or --refresh-views
     do_refresh = refresh_views if refresh_views is not None else os.getenv("USE_NEON_VIEWS", "").strip() in ("1", "true", "yes")
     if do_refresh and total > 0:
         print("\nRefreshing materialized views...")
